@@ -1,19 +1,9 @@
 export default async function handler(req, res) {
-  // Only allow POST
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' })
-  }
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
 
   const { base64, mime } = req.body
-
-  if (!base64 || !mime) {
-    return res.status(400).json({ error: 'Missing image data' })
-  }
-
-  // Basic size check — Anthropic max is ~5MB base64
-  if (base64.length > 6_000_000) {
-    return res.status(413).json({ error: 'Image is too large. Please use a photo under 4MB.' })
-  }
+  if (!base64 || !mime) return res.status(400).json({ error: 'Missing image data' })
+  if (base64.length > 6_000_000) return res.status(413).json({ error: 'Image is too large. Please use a photo under 4MB.' })
 
   const prompt = `You are an expert blueprint and floor plan analyzer. Study this image carefully.
 
@@ -25,18 +15,28 @@ Respond ONLY with a valid JSON object — no markdown, no backticks, no extra te
     {
       "name": "Room name as labeled on blueprint",
       "sqft": 150,
-      "dimensions_label": "12' x 12.5' or 'estimated'"
+      "dimensions_label": "12' x 12.5' or 'estimated'",
+      "box": {
+        "x": 0.25,
+        "y": 0.10,
+        "w": 0.30,
+        "h": 0.25
+      }
     }
   ],
   "total_sqft": 1800,
   "notes": "Brief notes for a flooring contractor: scale confidence, estimated vs measured rooms, structure type, anything relevant."
 }
 
-Rules:
-- Include every labeled space: rooms, hallways, closets, bathrooms, garage, utility rooms
-- sqft must always be a number (never null or a string)
-- If no scale is visible, estimate from typical residential room proportions
-- Be thorough — a flooring contractor needs every space accounted for`
+The "box" field for each room is critical — it defines where to draw a colored overlay on the blueprint image:
+- x: left edge of the room as a fraction of total image width (0.0 = left edge, 1.0 = right edge)
+- y: top edge of the room as a fraction of total image height (0.0 = top, 1.0 = bottom)
+- w: width of the room box as a fraction of total image width
+- h: height of the room box as a fraction of total image height
+
+Be as accurate as possible placing these boxes directly over where the room appears in the blueprint.
+Include every labeled space: rooms, hallways, closets, bathrooms, garage, utility rooms.
+sqft must always be a number. If no scale is visible, estimate from typical residential room proportions.`
 
   try {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -48,7 +48,7 @@ Rules:
       },
       body: JSON.stringify({
         model: 'claude-sonnet-4-6',
-        max_tokens: 1500,
+        max_tokens: 2000,
         messages: [{
           role: 'user',
           content: [
@@ -60,10 +60,7 @@ Rules:
     })
 
     const data = await response.json()
-
-    if (!response.ok) {
-      return res.status(response.status).json({ error: data?.error?.message || 'AI API error' })
-    }
+    if (!response.ok) return res.status(response.status).json({ error: data?.error?.message || 'AI API error' })
 
     const raw = (data.content || []).map(b => b.text || '').join('').trim()
     const match = raw.match(/\{[\s\S]*\}/)
@@ -71,7 +68,6 @@ Rules:
 
     const result = JSON.parse(match[0])
     return res.status(200).json(result)
-
   } catch (err) {
     console.error('Analyze error:', err)
     return res.status(500).json({ error: err.message || 'Server error. Please try again.' })
