@@ -4,21 +4,21 @@ const ORANGE = '#e85d04'
 const DARK   = '#1c1c2e'
 
 const ROOM_COLORS = [
-  { fill: 'rgba(255,80,80,0.28)',   border: '#e53935' },
-  { fill: 'rgba(33,150,243,0.28)',  border: '#1565c0' },
-  { fill: 'rgba(76,175,80,0.28)',   border: '#2e7d32' },
-  { fill: 'rgba(255,193,7,0.28)',   border: '#f57f17' },
-  { fill: 'rgba(156,39,176,0.28)', border: '#6a1b9a' },
-  { fill: 'rgba(255,138,0,0.28)',   border: '#e65100' },
-  { fill: 'rgba(0,188,212,0.28)',   border: '#006064' },
-  { fill: 'rgba(233,30,99,0.28)',   border: '#880e4f' },
-  { fill: 'rgba(139,195,74,0.28)',  border: '#33691e' },
-  { fill: 'rgba(63,81,181,0.28)',   border: '#1a237e' },
-  { fill: 'rgba(255,87,34,0.28)',   border: '#bf360c' },
-  { fill: 'rgba(0,150,136,0.28)',   border: '#004d40' },
+  { fill: 'rgba(255,80,80,0.30)',   border: '#e53935' },
+  { fill: 'rgba(33,150,243,0.30)',  border: '#1565c0' },
+  { fill: 'rgba(76,175,80,0.30)',   border: '#2e7d32' },
+  { fill: 'rgba(255,193,7,0.30)',   border: '#f57f17' },
+  { fill: 'rgba(156,39,176,0.30)',  border: '#6a1b9a' },
+  { fill: 'rgba(255,138,0,0.30)',   border: '#e65100' },
+  { fill: 'rgba(0,188,212,0.30)',   border: '#006064' },
+  { fill: 'rgba(233,30,99,0.30)',   border: '#880e4f' },
+  { fill: 'rgba(139,195,74,0.30)',  border: '#33691e' },
+  { fill: 'rgba(63,81,181,0.30)',   border: '#1a237e' },
+  { fill: 'rgba(255,87,34,0.30)',   border: '#bf360c' },
+  { fill: 'rgba(0,150,136,0.30)',   border: '#004d40' },
 ]
 
-// ── PDF to high-res image converter (browser-side) ──────────
+// ── PDF to high-res image ─────────────────────────────────────
 async function pdfToImage(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -26,8 +26,6 @@ async function pdfToImage(file) {
     reader.onload = async (e) => {
       try {
         const typedArray = new Uint8Array(e.target.result)
-
-        // Load PDF.js from CDN
         if (!window.pdfjsLib) {
           await new Promise((res, rej) => {
             const script = document.createElement('script')
@@ -39,33 +37,24 @@ async function pdfToImage(file) {
           window.pdfjsLib.GlobalWorkerOptions.workerSrc =
             'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'
         }
-
         const pdf = await window.pdfjsLib.getDocument({ data: typedArray }).promise
         const page = await pdf.getPage(1)
-
-        // Render at 3x scale for high resolution — keeps dimension text sharp
         const scale = 3.0
         const viewport = page.getViewport({ scale })
         const canvas = document.createElement('canvas')
-        canvas.width  = viewport.width
+        canvas.width = viewport.width
         canvas.height = viewport.height
         const ctx = canvas.getContext('2d')
-
         await page.render({ canvasContext: ctx, viewport }).promise
-
-        // Convert to high-quality JPEG
         const dataUrl = canvas.toDataURL('image/jpeg', 0.95)
-        const base64  = dataUrl.split(',')[1]
-        resolve({ src: dataUrl, base64, mime: 'image/jpeg', name: file.name, size: file.size, fromPdf: true })
-      } catch (err) {
-        reject(new Error('PDF rendering failed: ' + err.message))
-      }
+        resolve({ src: dataUrl, base64: dataUrl.split(',')[1], mime: 'image/jpeg', name: file.name, size: file.size, fromPdf: true })
+      } catch (err) { reject(new Error('PDF rendering failed: ' + err.message)) }
     }
     reader.readAsArrayBuffer(file)
   })
 }
 
-// ── API helpers ──────────────────────────────────────────────
+// ── API ───────────────────────────────────────────────────────
 async function callScan(base64, mime) {
   const res = await fetch('/api/scan', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -76,35 +65,24 @@ async function callScan(base64, mime) {
   return data
 }
 
-async function callOverlay(base64, mime, rooms) {
-  const res = await fetch('/api/overlay', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ base64, mime, rooms })
-  })
-  const data = await res.json()
-  if (!res.ok) throw new Error(data?.error || `Error ${res.status}`)
-  return data
-}
-
-// ── Header ───────────────────────────────────────────────────
+// ── Header ────────────────────────────────────────────────────
 function Header() {
   return (
-    <div style={{ background: DARK, padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 12, position: 'sticky', top: 0, zIndex: 10 }}>
-      <div style={{ width: 38, height: 38, background: ORANGE, borderRadius: 9, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+    <div style={{ background: DARK, padding: '14px 20px', display: 'flex', alignItems: 'center', gap: 12, position: 'sticky', top: 0, zIndex: 100 }}>
+      <div style={{ width: 36, height: 36, background: ORANGE, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-          <rect x="3" y="3" width="18" height="18" rx="2"/>
-          <path d="M3 9h18M9 21V9M15 21V9"/>
+          <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9M15 21V9"/>
         </svg>
       </div>
       <div>
-        <div style={{ color: '#fff', fontWeight: 700, fontSize: 16 }}>TopCoat Blueprint Analyzer</div>
-        <div style={{ color: '#888', fontSize: 12 }}>AI-powered square footage calculator</div>
+        <div style={{ color: '#fff', fontWeight: 700, fontSize: 15 }}>TopCoat Blueprint Analyzer</div>
+        <div style={{ color: '#888', fontSize: 11 }}>AI-powered square footage calculator</div>
       </div>
     </div>
   )
 }
 
-// ── Upload Screen ────────────────────────────────────────────
+// ── Upload Screen ─────────────────────────────────────────────
 function UploadScreen({ onFile, error, converting }) {
   const [drag, setDrag] = useState(false)
   const uploadRef = useRef()
@@ -113,34 +91,24 @@ function UploadScreen({ onFile, error, converting }) {
   async function handleFiles(files) {
     const file = files[0]
     if (!file) return
-
-    // PDF handling
     if (file.name?.toLowerCase().endsWith('.pdf') || file.type === 'application/pdf') {
-      onFile({ loading: true, msg: 'Converting PDF to high-resolution image…' })
-      try {
-        const result = await pdfToImage(file)
-        onFile(result)
-      } catch (err) {
-        onFile({ error: err.message || 'PDF conversion failed. Please try a different file.' })
-      }
+      onFile({ loading: true })
+      try { onFile(await pdfToImage(file)) }
+      catch (err) { onFile({ error: err.message }) }
       return
     }
-
-    // Image handling
     let mime = file.type || ''
     if (!mime || mime === 'application/octet-stream') {
-      const ext = (file.name || '').split('.').pop().toLowerCase()
-      const map = { jpg:'image/jpeg', jpeg:'image/jpeg', png:'image/png', gif:'image/gif', webp:'image/webp', heic:'image/heic', heif:'image/heif' }
+      const ext = (file.name||'').split('.').pop().toLowerCase()
+      const map = { jpg:'image/jpeg',jpeg:'image/jpeg',png:'image/png',gif:'image/gif',webp:'image/webp',heic:'image/jpeg',heif:'image/jpeg' }
       mime = map[ext] || 'image/jpeg'
     }
-    if (mime === 'image/heic' || mime === 'image/heif') mime = 'image/jpeg'
-
     const reader = new FileReader()
-    reader.onerror = () => onFile({ error: 'Could not read file. Please try again.' })
-    reader.onload = (e) => {
+    reader.onerror = () => onFile({ error: 'Could not read file.' })
+    reader.onload = e => {
       const src = e.target.result
       const base64 = src.split(',')[1]
-      if (!base64 || base64.length < 200) { onFile({ error: 'Image appears empty. Try another file.' }); return }
+      if (!base64 || base64.length < 200) { onFile({ error: 'Image appears empty.' }); return }
       onFile({ src, base64, mime, name: file.name, size: file.size })
     }
     reader.readAsDataURL(file)
@@ -148,7 +116,6 @@ function UploadScreen({ onFile, error, converting }) {
 
   return (
     <div style={{ padding: '24px 16px' }}>
-      {/* Camera */}
       <button onClick={() => cameraRef.current?.click()} style={{ width:'100%', padding:'18px', background:ORANGE, color:'#fff', border:'none', borderRadius:14, fontSize:17, fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:10, marginBottom:12, boxShadow:'0 4px 16px rgba(232,93,4,0.35)' }}>
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
@@ -158,194 +125,237 @@ function UploadScreen({ onFile, error, converting }) {
       </button>
       <input ref={cameraRef} type="file" accept="image/*" capture="environment" style={{ display:'none' }} onChange={e => handleFiles(e.target.files)} />
 
-      {/* Upload — accepts PDF AND images */}
-      <div onClick={() => uploadRef.current?.click()}
-        onDragOver={e => { e.preventDefault(); setDrag(true) }}
-        onDragLeave={() => setDrag(false)}
-        onDrop={e => { e.preventDefault(); setDrag(false); handleFiles(e.dataTransfer.files) }}
-        style={{ border:`2px dashed ${drag ? ORANGE : '#ccc'}`, borderRadius:14, padding:'28px 20px', textAlign:'center', cursor: converting ? 'wait' : 'pointer', background: drag ? '#fff8f5' : '#fff', transition:'all 0.15s' }}>
-        <input ref={uploadRef} type="file" accept="image/jpeg,image/png,image/gif,image/webp,image/heic,.pdf,application/pdf" style={{ display:'none' }} onChange={e => handleFiles(e.target.files)} />
-
+      <div onClick={() => !converting && uploadRef.current?.click()}
+        onDragOver={e=>{e.preventDefault();setDrag(true)}} onDragLeave={()=>setDrag(false)}
+        onDrop={e=>{e.preventDefault();setDrag(false);handleFiles(e.dataTransfer.files)}}
+        style={{ border:`2px dashed ${drag?ORANGE:'#ccc'}`, borderRadius:14, padding:'28px 20px', textAlign:'center', cursor:converting?'wait':'pointer', background:drag?'#fff8f5':'#fff' }}>
+        <input ref={uploadRef} type="file" accept="image/jpeg,image/png,image/gif,image/webp,image/heic,.pdf,application/pdf" style={{ display:'none' }} onChange={e=>handleFiles(e.target.files)} />
         {converting ? (
-          <>
-            <div style={{ fontSize:32, marginBottom:10 }}>⏳</div>
-            <div style={{ fontWeight:600, fontSize:15, color:'#222', marginBottom:4 }}>Converting PDF…</div>
-            <div style={{ fontSize:13, color:'#999' }}>Rendering to high-resolution image</div>
-          </>
+          <><div style={{fontSize:32,marginBottom:10}}>⏳</div><div style={{fontWeight:600,fontSize:15,color:'#222'}}>Converting PDF…</div><div style={{fontSize:13,color:'#999'}}>Rendering high-resolution image</div></>
         ) : (
-          <>
-            <div style={{ fontSize:36, marginBottom:10 }}>📄</div>
-            <div style={{ fontWeight:600, fontSize:15, color:'#222', marginBottom:4 }}>Upload Blueprint</div>
-            <div style={{ fontSize:13, color:'#999' }}>PDF · JPG · PNG · WEBP · HEIC</div>
-            <div style={{ marginTop:8, display:'inline-block', background:'#fff3e0', color:'#e65100', borderRadius:6, padding:'3px 10px', fontSize:12, fontWeight:600 }}>✓ PDF supported</div>
-          </>
+          <><div style={{fontSize:36,marginBottom:10}}>📄</div><div style={{fontWeight:600,fontSize:15,color:'#222',marginBottom:4}}>Upload Blueprint</div><div style={{fontSize:13,color:'#999'}}>PDF · JPG · PNG · WEBP</div><div style={{marginTop:8,display:'inline-block',background:'#fff3e0',color:'#e65100',borderRadius:6,padding:'3px 10px',fontSize:12,fontWeight:600}}>✓ PDF supported</div></>
         )}
       </div>
-
-      {error && <div style={{ marginTop:12, background:'#fdecea', border:'1px solid #f5c6c6', borderRadius:8, padding:'12px 14px', color:'#c62828', fontSize:13 }}>⚠️ {error}</div>}
-
-      <div style={{ marginTop:20, background:'#fff', borderRadius:12, padding:'14px 16px', border:'1px solid #e8e8e8' }}>
-        <div style={{ fontWeight:600, fontSize:13, color:'#444', marginBottom:8 }}>📋 Tips for best results</div>
-        <div style={{ fontSize:13, color:'#666', lineHeight:1.7 }}>
-          • Upload the original PDF for sharpest results<br/>
-          • If using a photo, capture the whole floor plan<br/>
-          • Make sure dimension labels are in frame<br/>
-          • Include the scale legend if visible<br/>
-          • Avoid shadows across the drawing
-        </div>
+      {error && <div style={{marginTop:12,background:'#fdecea',border:'1px solid #f5c6c6',borderRadius:8,padding:'12px 14px',color:'#c62828',fontSize:13}}>⚠️ {error}</div>}
+      <div style={{marginTop:20,background:'#fff',borderRadius:12,padding:'14px 16px',border:'1px solid #e8e8e8'}}>
+        <div style={{fontWeight:600,fontSize:13,color:'#444',marginBottom:8}}>📋 Tips for best results</div>
+        <div style={{fontSize:13,color:'#666',lineHeight:1.7}}>• Upload original PDF for sharpest results<br/>• Make sure dimension labels are readable<br/>• Include scale legend if visible</div>
       </div>
     </div>
   )
 }
 
-// ── Preview Screen ───────────────────────────────────────────
+// ── Preview Screen ────────────────────────────────────────────
 function PreviewScreen({ image, onScan, onReset, loading, statusMsg, error }) {
   return (
     <div style={{ padding:'16px 16px 24px' }}>
-      {image.fromPdf && (
-        <div style={{ background:'#e8f5e9', border:'1px solid #a5d6a7', borderRadius:8, padding:'8px 14px', fontSize:12, color:'#2e7d32', fontWeight:600, marginBottom:10 }}>
-          ✓ PDF converted to high-resolution image — dimension labels will be sharp and readable
-        </div>
-      )}
-      <div style={{ borderRadius:12, overflow:'hidden', background:'#111', marginBottom:12, position:'relative' }}>
-        <img src={image.src} alt="Blueprint" style={{ width:'100%', maxHeight:420, objectFit:'contain' }} />
-        <button onClick={onReset} style={{ position:'absolute', top:10, right:10, background:'rgba(0,0,0,0.65)', color:'#fff', border:'none', borderRadius:6, padding:'5px 12px', fontSize:12, cursor:'pointer' }}>↺ Retake</button>
+      {image.fromPdf && <div style={{background:'#e8f5e9',border:'1px solid #a5d6a7',borderRadius:8,padding:'8px 14px',fontSize:12,color:'#2e7d32',fontWeight:600,marginBottom:10}}>✓ PDF converted to high-resolution image</div>}
+      <div style={{borderRadius:12,overflow:'hidden',background:'#111',marginBottom:12,position:'relative'}}>
+        <img src={image.src} alt="Blueprint" style={{width:'100%',maxHeight:420,objectFit:'contain'}} />
+        <button onClick={onReset} style={{position:'absolute',top:10,right:10,background:'rgba(0,0,0,0.65)',color:'#fff',border:'none',borderRadius:6,padding:'5px 12px',fontSize:12,cursor:'pointer'}}>↺ Retake</button>
       </div>
-      <div style={{ fontSize:11, color:'#aaa', textAlign:'center', marginBottom:14 }}>{image.name} · {(image.size/1024).toFixed(0)} KB{image.fromPdf ? ' · PDF → High-res image' : ''}</div>
-      {error && <div style={{ background:'#fdecea', border:'1px solid #f5c6c6', borderRadius:8, padding:'12px 14px', color:'#c62828', fontSize:13, marginBottom:12 }}>⚠️ {error}</div>}
+      <div style={{fontSize:11,color:'#aaa',textAlign:'center',marginBottom:14}}>{image.name} · {(image.size/1024).toFixed(0)} KB</div>
+      {error && <div style={{background:'#fdecea',border:'1px solid #f5c6c6',borderRadius:8,padding:'12px 14px',color:'#c62828',fontSize:13,marginBottom:12}}>⚠️ {error}</div>}
       {loading ? (
-        <div style={{ display:'flex', alignItems:'center', gap:10, padding:'14px 16px', background:'#e8f4fd', border:'1px solid #b3d9f7', borderRadius:8, fontSize:14, color:'#1565c0' }}>
-          <div style={{ width:18, height:18, border:'2.5px solid #b3d9f7', borderTopColor:'#1565c0', borderRadius:'50%', animation:'spin 0.8s linear infinite', flexShrink:0 }} />
-          {statusMsg}
+        <div style={{display:'flex',alignItems:'center',gap:10,padding:'14px 16px',background:'#e8f4fd',border:'1px solid #b3d9f7',borderRadius:8,fontSize:14,color:'#1565c0'}}>
+          <div style={{width:18,height:18,border:'2.5px solid #b3d9f7',borderTopColor:'#1565c0',borderRadius:'50%',animation:'spin 0.8s linear infinite',flexShrink:0}} />{statusMsg}
         </div>
       ) : (
-        <button onClick={onScan} style={{ width:'100%', padding:'15px', background:ORANGE, color:'#fff', border:'none', borderRadius:10, fontSize:16, fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
-          🔍 Scan Blueprint
-        </button>
+        <button onClick={onScan} style={{width:'100%',padding:'15px',background:ORANGE,color:'#fff',border:'none',borderRadius:10,fontSize:16,fontWeight:700,cursor:'pointer'}}>🔍 Scan Blueprint</button>
       )}
     </div>
   )
 }
 
 // ── Room Selection Screen ─────────────────────────────────────
-function SelectScreen({ image, scanData, onOverlay, onReset, loading, statusMsg, error }) {
+function SelectScreen({ image, scanData, onNext, onReset, loading, statusMsg, error }) {
   const [checked, setChecked] = useState(() => {
     const init = {}
-    ;(scanData.rooms || []).forEach(r => { init[r.id] = false })
+    ;(scanData.rooms||[]).forEach(r => { init[r.id] = false })
     return init
   })
-
   const rooms = scanData.rooms || []
-  const selectedRooms  = rooms.filter(r => checked[r.id])
-  const selectedSqft   = selectedRooms.reduce((s,r) => s+(r.sqft||0), 0)
-
-  function toggle(id)  { setChecked(p => ({ ...p, [id]: !p[id] })) }
-  function selectAll() { const a={}; rooms.forEach(r=>{a[r.id]=true});  setChecked(a) }
-  function clearAll()  { const a={}; rooms.forEach(r=>{a[r.id]=false}); setChecked(a) }
+  const selectedRooms = rooms.filter(r => checked[r.id])
+  const selectedSqft  = selectedRooms.reduce((s,r) => s+(r.sqft||0), 0)
 
   return (
     <div style={{ padding:'16px 16px 40px' }}>
-      <div style={{ borderRadius:10, overflow:'hidden', background:'#111', marginBottom:16, maxHeight:180, display:'flex', alignItems:'center', justifyContent:'center' }}>
-        <img src={image.src} alt="Blueprint" style={{ width:'100%', maxHeight:180, objectFit:'contain' }} />
+      <div style={{borderRadius:10,overflow:'hidden',background:'#111',marginBottom:16,maxHeight:160,display:'flex',alignItems:'center',justifyContent:'center'}}>
+        <img src={image.src} alt="Blueprint" style={{width:'100%',maxHeight:160,objectFit:'contain'}} />
       </div>
-
-      {scanData.scale && (
-        <div style={{ background:'#fff3e0', border:'1px solid #ffcc80', borderRadius:6, padding:'6px 12px', fontSize:12, color:'#bf360c', fontWeight:600, marginBottom:14, display:'inline-block' }}>
-          Scale: {scanData.scale}
-        </div>
-      )}
-
-      <div style={{ fontWeight:700, fontSize:16, color:'#222', marginBottom:4 }}>Select rooms to coat</div>
-      <div style={{ fontSize:13, color:'#888', marginBottom:14 }}>Check only the rooms TopCoat will be installing flooring in.</div>
-
-      <div style={{ display:'flex', gap:8, marginBottom:14 }}>
-        <button onClick={selectAll} style={{ flex:1, padding:'8px', background:'#fff', border:'1px solid #ddd', borderRadius:7, fontSize:13, cursor:'pointer', color:'#444' }}>Select All</button>
-        <button onClick={clearAll}  style={{ flex:1, padding:'8px', background:'#fff', border:'1px solid #ddd', borderRadius:7, fontSize:13, cursor:'pointer', color:'#444' }}>Clear All</button>
+      {scanData.scale && <div style={{background:'#fff3e0',border:'1px solid #ffcc80',borderRadius:6,padding:'6px 12px',fontSize:12,color:'#bf360c',fontWeight:600,marginBottom:14,display:'inline-block'}}>Scale: {scanData.scale}</div>}
+      <div style={{fontWeight:700,fontSize:16,color:'#222',marginBottom:4}}>Select rooms to coat</div>
+      <div style={{fontSize:13,color:'#888',marginBottom:14}}>Check only rooms TopCoat will be installing flooring in.</div>
+      <div style={{display:'flex',gap:8,marginBottom:14}}>
+        <button onClick={()=>{const a={};rooms.forEach(r=>{a[r.id]=true});setChecked(a)}} style={{flex:1,padding:'8px',background:'#fff',border:'1px solid #ddd',borderRadius:7,fontSize:13,cursor:'pointer',color:'#444'}}>Select All</button>
+        <button onClick={()=>{const a={};rooms.forEach(r=>{a[r.id]=false});setChecked(a)}} style={{flex:1,padding:'8px',background:'#fff',border:'1px solid #ddd',borderRadius:7,fontSize:13,cursor:'pointer',color:'#444'}}>Clear All</button>
       </div>
-
-      <div style={{ display:'flex', flexDirection:'column', gap:8, marginBottom:20 }}>
+      <div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:20}}>
         {rooms.map(room => (
-          <div key={room.id} onClick={() => toggle(room.id)}
-            style={{ display:'flex', alignItems:'center', gap:12, background:'#fff', border:`2px solid ${checked[room.id] ? ORANGE : '#e8e8e8'}`, borderRadius:10, padding:'12px 14px', cursor:'pointer', userSelect:'none' }}>
-            <div style={{ width:22, height:22, borderRadius:5, border:`2px solid ${checked[room.id] ? ORANGE : '#ccc'}`, background: checked[room.id] ? ORANGE : '#fff', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-              {checked[room.id] && <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+          <div key={room.id} onClick={()=>setChecked(p=>({...p,[room.id]:!p[room.id]}))}
+            style={{display:'flex',alignItems:'center',gap:12,background:'#fff',border:`2px solid ${checked[room.id]?ORANGE:'#e8e8e8'}`,borderRadius:10,padding:'12px 14px',cursor:'pointer',userSelect:'none'}}>
+            <div style={{width:22,height:22,borderRadius:5,border:`2px solid ${checked[room.id]?ORANGE:'#ccc'}`,background:checked[room.id]?ORANGE:'#fff',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+              {checked[room.id]&&<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
             </div>
-            <div style={{ flex:1 }}>
-              <div style={{ fontWeight:600, fontSize:14, color:'#222' }}>{room.name}</div>
-              <div style={{ fontSize:12, color:'#888', marginTop:1 }}>
-                {room.dimensions_label || `~${Math.round(room.sqft||0)} sq ft`}
-                {room.dimensions_label && <span style={{ color:'#aaa' }}> · {Math.round(room.sqft||0)} sq ft</span>}
-              </div>
+            <div style={{flex:1}}>
+              <div style={{fontWeight:600,fontSize:14,color:'#222'}}>{room.name}</div>
+              <div style={{fontSize:12,color:'#888',marginTop:1}}>{room.dimensions_label||`~${Math.round(room.sqft||0)} sq ft`}{room.dimensions_label&&<span style={{color:'#aaa'}}> · {Math.round(room.sqft||0)} sq ft</span>}</div>
             </div>
-            <div>
-              {room.measured !== false
-                ? <span style={{ fontSize:10, background:'#e8f5e9', color:'#2e7d32', borderRadius:3, padding:'2px 6px', fontWeight:600 }}>MEASURED</span>
-                : <span style={{ fontSize:10, background:'#fff8e1', color:'#f57f17', borderRadius:3, padding:'2px 6px', fontWeight:600 }}>ESTIMATED</span>}
-            </div>
+            {room.measured!==false
+              ?<span style={{fontSize:10,background:'#e8f5e9',color:'#2e7d32',borderRadius:3,padding:'2px 6px',fontWeight:600}}>MEASURED</span>
+              :<span style={{fontSize:10,background:'#fff8e1',color:'#f57f17',borderRadius:3,padding:'2px 6px',fontWeight:600}}>ESTIMATED</span>}
           </div>
         ))}
       </div>
-
-      {selectedRooms.length > 0 && (
-        <div style={{ background:DARK, borderRadius:10, padding:'14px 18px', display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
-          <div>
-            <div style={{ color:'#aaa', fontSize:12 }}>Selected area</div>
-            <div style={{ color:'#666', fontSize:11, marginTop:1 }}>{selectedRooms.length} room{selectedRooms.length!==1?'s':''}</div>
-          </div>
-          <div style={{ color:ORANGE, fontSize:26, fontWeight:800 }}>
-            {Math.round(selectedSqft).toLocaleString()} <span style={{ fontSize:13, color:'#aaa', fontWeight:400 }}>sq ft</span>
-          </div>
+      {selectedRooms.length>0&&(
+        <div style={{background:DARK,borderRadius:10,padding:'14px 18px',display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
+          <div><div style={{color:'#aaa',fontSize:12}}>Selected area</div><div style={{color:'#666',fontSize:11,marginTop:1}}>{selectedRooms.length} room{selectedRooms.length!==1?'s':''}</div></div>
+          <div style={{color:ORANGE,fontSize:26,fontWeight:800}}>{Math.round(selectedSqft).toLocaleString()} <span style={{fontSize:13,color:'#aaa',fontWeight:400}}>sq ft</span></div>
         </div>
       )}
-
-      {error && <div style={{ background:'#fdecea', border:'1px solid #f5c6c6', borderRadius:8, padding:'12px 14px', color:'#c62828', fontSize:13, marginBottom:12 }}>⚠️ {error}</div>}
-
-      {loading ? (
-        <div style={{ display:'flex', alignItems:'center', gap:10, padding:'14px 16px', background:'#e8f4fd', border:'1px solid #b3d9f7', borderRadius:8, fontSize:14, color:'#1565c0' }}>
-          <div style={{ width:18, height:18, border:'2.5px solid #b3d9f7', borderTopColor:'#1565c0', borderRadius:'50%', animation:'spin 0.8s linear infinite', flexShrink:0 }} />
-          {statusMsg}
-        </div>
-      ) : (
-        <button onClick={() => onOverlay(selectedRooms)} disabled={selectedRooms.length===0}
-          style={{ width:'100%', padding:'15px', background:selectedRooms.length===0?'#ccc':ORANGE, color:'#fff', border:'none', borderRadius:10, fontSize:16, fontWeight:700, cursor:selectedRooms.length===0?'not-allowed':'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
-          🗺️ Generate Overlay {selectedRooms.length>0?`(${selectedRooms.length} rooms)`:''}
-        </button>
-      )}
-      <button onClick={onReset} style={{ width:'100%', marginTop:10, padding:'10px', background:'transparent', border:'1px solid #ddd', borderRadius:8, fontSize:13, color:'#888', cursor:'pointer' }}>
-        ↺ Start Over
+      {error&&<div style={{background:'#fdecea',border:'1px solid #f5c6c6',borderRadius:8,padding:'12px 14px',color:'#c62828',fontSize:13,marginBottom:12}}>⚠️ {error}</div>}
+      <button onClick={()=>onNext(selectedRooms)} disabled={selectedRooms.length===0}
+        style={{width:'100%',padding:'15px',background:selectedRooms.length===0?'#ccc':ORANGE,color:'#fff',border:'none',borderRadius:10,fontSize:16,fontWeight:700,cursor:selectedRooms.length===0?'not-allowed':'pointer'}}>
+        Next — Place Rooms on Blueprint →
       </button>
+      <button onClick={onReset} style={{width:'100%',marginTop:10,padding:'10px',background:'transparent',border:'1px solid #ddd',borderRadius:8,fontSize:13,color:'#888',cursor:'pointer'}}>↺ Start Over</button>
     </div>
   )
 }
 
-// ── Blueprint Overlay ─────────────────────────────────────────
-function BlueprintOverlay({ imageSrc, rooms }) {
+// ── Tap-to-Place Screen ───────────────────────────────────────
+function TapScreen({ image, rooms, onDone, onBack }) {
+  const [placements, setPlacements] = useState({})
+  const [currentIdx, setCurrentIdx] = useState(0)
+  const imgRef = useRef()
+
+  const currentRoom = rooms[currentIdx]
+  const allPlaced   = rooms.every(r => placements[r.id])
+
+  function handleTap(e) {
+    const rect = imgRef.current.getBoundingClientRect()
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY
+    const x = (clientX - rect.left)  / rect.width
+    const y = (clientY - rect.top)   / rect.height
+
+    // Calculate box size from sqft — assume roughly square, scaled to image
+    // We'll use aspect ratio of image to size the box proportionally
+    const imgW = imgRef.current.naturalWidth  || rect.width
+    const imgH = imgRef.current.naturalHeight || rect.height
+    const aspect = imgW / imgH
+
+    // Estimate room dimensions in image-fraction units
+    // Assume total blueprint area is roughly the image area
+    // sqft fraction of total = box area fraction of image
+    const totalSqft = rooms.reduce((s,r)=>s+(r.sqft||100),0)
+    const roomFraction = (currentRoom.sqft||100) / Math.max(totalSqft, 1000)
+    const boxArea = Math.min(roomFraction * 1.8, 0.35) // scale up for visibility, cap at 35%
+    const boxH = Math.sqrt(boxArea / aspect)
+    const boxW = boxH * aspect
+
+    // Center the box on the tap point, keep within bounds
+    const bx = Math.max(0, Math.min(x - boxW/2, 1 - boxW))
+    const by = Math.max(0, Math.min(y - boxH/2, 1 - boxH))
+
+    setPlacements(p => ({ ...p, [currentRoom.id]: { x: bx, y: by, w: boxW, h: boxH } }))
+
+    // Auto-advance to next unplaced room
+    const nextIdx = rooms.findIndex((r,i) => i > currentIdx && !placements[r.id] && r.id !== currentRoom.id)
+    if (nextIdx !== -1) setCurrentIdx(nextIdx)
+    else {
+      // find any unplaced
+      const anyUnplaced = rooms.findIndex(r => r.id !== currentRoom.id && !placements[r.id])
+      if (anyUnplaced !== -1) setCurrentIdx(anyUnplaced)
+    }
+  }
+
+  function handleDone() {
+    const roomsWithBoxes = rooms.map(r => ({ ...r, box: placements[r.id] || null }))
+    onDone(roomsWithBoxes)
+  }
+
+  const color = currentRoom ? ROOM_COLORS[currentIdx % ROOM_COLORS.length] : null
+  const placedCount = Object.keys(placements).length
+
   return (
-    <div style={{ position:'relative', width:'100%', display:'inline-block' }}>
-      <img src={imageSrc} alt="Blueprint" style={{ width:'100%', display:'block', borderRadius:8 }} />
-      <div style={{ position:'absolute', inset:0, borderRadius:8, overflow:'hidden' }}>
-        {rooms.map((room, i) => {
-          const box = room.box
-          if (!box || !box.w || !box.h) return null
-          const color = ROOM_COLORS[i % ROOM_COLORS.length]
-          const pad = 0.004
+    <div style={{ padding:'16px 16px 40px' }}>
+      {/* Instruction bar */}
+      <div style={{ background: currentRoom ? color.border : '#2e7d32', borderRadius:10, padding:'12px 16px', marginBottom:12, color:'#fff' }}>
+        {currentRoom ? (
+          <>
+            <div style={{fontWeight:700,fontSize:14}}>Tap the center of: {currentRoom.name}</div>
+            <div style={{fontSize:12,opacity:0.85,marginTop:2}}>{currentRoom.dimensions_label||''} · {Math.round(currentRoom.sqft||0)} sq ft · {placedCount}/{rooms.length} placed</div>
+          </>
+        ) : (
+          <div style={{fontWeight:700,fontSize:14}}>✓ All rooms placed! Review below and tap Done.</div>
+        )}
+      </div>
+
+      {/* Room pills */}
+      <div style={{display:'flex',flexWrap:'wrap',gap:6,marginBottom:12}}>
+        {rooms.map((room,i) => {
+          const c = ROOM_COLORS[i%ROOM_COLORS.length]
+          const placed = !!placements[room.id]
+          const isCurrent = room.id === currentRoom?.id
           return (
-            <div key={i} style={{
-              position:'absolute',
-              left:`${(box.x+pad)*100}%`, top:`${(box.y+pad)*100}%`,
-              width:`${Math.max((box.w-pad*2)*100,1)}%`, height:`${Math.max((box.h-pad*2)*100,1)}%`,
-              background:color.fill, border:`2.5px solid ${color.border}`,
-              borderRadius:3, boxSizing:'border-box',
-              display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden',
-            }}>
-              <div style={{ background:color.border, borderRadius:3, padding:'2px 6px', maxWidth:'92%', textAlign:'center' }}>
-                <div style={{ fontSize:8, fontWeight:800, color:'#fff', textTransform:'uppercase', letterSpacing:'0.03em', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', lineHeight:1.3 }}>{room.name}</div>
-                <div style={{ fontSize:8, fontWeight:600, color:'rgba(255,255,255,0.9)', lineHeight:1.2 }}>{Math.round(room.sqft||0)} sf</div>
-              </div>
+            <div key={room.id} onClick={()=>setCurrentIdx(i)}
+              style={{padding:'4px 10px',borderRadius:20,border:`2px solid ${c.border}`,background:placed?c.border:'#fff',color:placed?'#fff':c.border,fontSize:11,fontWeight:700,cursor:'pointer',opacity:isCurrent?1:0.7}}>
+              {placed?'✓ ':''}{room.name}
             </div>
           )
         })}
       </div>
+
+      {/* Blueprint tap area */}
+      <div style={{position:'relative',borderRadius:12,overflow:'hidden',background:'#111',marginBottom:14,touchAction:'none'}}
+        onClick={handleTap} onTouchEnd={e=>{e.preventDefault();handleTap(e)}}>
+        <img ref={imgRef} src={image.src} alt="Blueprint"
+          style={{width:'100%',display:'block',userSelect:'none',WebkitUserSelect:'none'}}
+          draggable={false} />
+
+        {/* Draw placed boxes */}
+        <div style={{position:'absolute',inset:0,pointerEvents:'none'}}>
+          {rooms.map((room,i) => {
+            const box = placements[room.id]
+            if (!box) return null
+            const c = ROOM_COLORS[i%ROOM_COLORS.length]
+            const isCurrent = room.id === currentRoom?.id
+            return (
+              <div key={room.id} style={{
+                position:'absolute',
+                left:`${box.x*100}%`,top:`${box.y*100}%`,
+                width:`${box.w*100}%`,height:`${box.h*100}%`,
+                background:c.fill,border:`${isCurrent?3:2}px solid ${c.border}`,
+                borderRadius:4,boxSizing:'border-box',
+                display:'flex',alignItems:'center',justifyContent:'center',overflow:'hidden'
+              }}>
+                <div style={{background:c.border,borderRadius:3,padding:'2px 5px',maxWidth:'90%',textAlign:'center'}}>
+                  <div style={{fontSize:8,fontWeight:800,color:'#fff',textTransform:'uppercase',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',lineHeight:1.3}}>{room.name}</div>
+                  <div style={{fontSize:8,color:'rgba(255,255,255,0.9)',lineHeight:1.2}}>{Math.round(room.sqft||0)} sf</div>
+                </div>
+              </div>
+            )
+          })}
+
+          {/* Crosshair hint for current room */}
+          {currentRoom && (
+            <div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',pointerEvents:'none'}}>
+              <div style={{color:'rgba(255,255,255,0.25)',fontSize:48,fontWeight:100}}>+</div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div style={{fontSize:12,color:'#888',textAlign:'center',marginBottom:14}}>
+        Tap the blueprint to place each room · Tap a pill above to re-place a room
+      </div>
+
+      <button onClick={handleDone} disabled={placedCount===0}
+        style={{width:'100%',padding:'15px',background:allPlaced?ORANGE:placedCount>0?'#ff8f00':'#ccc',color:'#fff',border:'none',borderRadius:10,fontSize:16,fontWeight:700,cursor:placedCount===0?'not-allowed':'pointer',marginBottom:10}}>
+        {allPlaced ? '✓ Done — Generate Results' : `Done (${placedCount}/${rooms.length} placed)`}
+      </button>
+      <button onClick={onBack} style={{width:'100%',padding:'10px',background:'transparent',border:'1px solid #ddd',borderRadius:8,fontSize:13,color:'#888',cursor:'pointer'}}>← Back to Room List</button>
     </div>
   )
 }
@@ -358,87 +368,105 @@ function ResultsScreen({ image, rooms, scanData, onReset, onReselect }) {
 
   return (
     <div className="fade-in" style={{ padding:'16px 16px 40px' }}>
-      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:14 }}>
-        <div style={{ background:'#fff3e0', color:'#bf360c', border:'1px solid #ffcc80', borderRadius:6, padding:'4px 10px', fontSize:12, fontWeight:600 }}>
-          Scale: {scanData.scale||'not detected'}
-        </div>
-        <button onClick={onReset} style={{ background:'transparent', border:'1px solid #ddd', borderRadius:6, padding:'4px 12px', fontSize:12, color:'#666', cursor:'pointer' }}>New Blueprint</button>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14}}>
+        <div style={{background:'#fff3e0',color:'#bf360c',border:'1px solid #ffcc80',borderRadius:6,padding:'4px 10px',fontSize:12,fontWeight:600}}>Scale: {scanData.scale||'not detected'}</div>
+        <button onClick={onReset} style={{background:'transparent',border:'1px solid #ddd',borderRadius:6,padding:'4px 12px',fontSize:12,color:'#666',cursor:'pointer'}}>New Blueprint</button>
       </div>
 
-      <div style={{ background:DARK, borderRadius:12, padding:'16px 20px', display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:16 }}>
+      <div style={{background:DARK,borderRadius:12,padding:'16px 20px',display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:16}}>
         <div>
-          <div style={{ color:'#aaa', fontSize:13 }}>Total coating area</div>
-          <div style={{ color:'#666', fontSize:11, marginTop:2 }}>{rooms.length} room{rooms.length!==1?'s':''} · {measuredCount} measured{estimatedCount>0?` · ${estimatedCount} estimated`:''}</div>
+          <div style={{color:'#aaa',fontSize:13}}>Total coating area</div>
+          <div style={{color:'#666',fontSize:11,marginTop:2}}>{rooms.length} room{rooms.length!==1?'s':''} · {measuredCount} measured{estimatedCount>0?` · ${estimatedCount} estimated`:''}</div>
         </div>
-        <div style={{ color:ORANGE, fontSize:30, fontWeight:800, lineHeight:1 }}>
-          {total.toLocaleString()} <span style={{ fontSize:14, color:'#aaa', fontWeight:400 }}>sq ft</span>
+        <div style={{color:ORANGE,fontSize:30,fontWeight:800,lineHeight:1}}>{total.toLocaleString()} <span style={{fontSize:14,color:'#aaa',fontWeight:400}}>sq ft</span></div>
+      </div>
+
+      {/* Blueprint with overlays */}
+      <div style={{background:'#111',borderRadius:12,padding:8,marginBottom:14,position:'relative'}}>
+        <div style={{position:'relative',width:'100%'}}>
+          <img src={image.src} alt="Blueprint" style={{width:'100%',display:'block',borderRadius:8}} />
+          <div style={{position:'absolute',inset:0,borderRadius:8,overflow:'hidden'}}>
+            {rooms.map((room,i) => {
+              const box = room.box
+              if (!box) return null
+              const color = ROOM_COLORS[i%ROOM_COLORS.length]
+              return (
+                <div key={i} style={{
+                  position:'absolute',
+                  left:`${box.x*100}%`,top:`${box.y*100}%`,
+                  width:`${box.w*100}%`,height:`${box.h*100}%`,
+                  background:color.fill,border:`2.5px solid ${color.border}`,
+                  borderRadius:3,boxSizing:'border-box',
+                  display:'flex',alignItems:'center',justifyContent:'center',overflow:'hidden'
+                }}>
+                  <div style={{background:color.border,borderRadius:3,padding:'2px 6px',maxWidth:'92%',textAlign:'center'}}>
+                    <div style={{fontSize:8,fontWeight:800,color:'#fff',textTransform:'uppercase',letterSpacing:'0.03em',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',lineHeight:1.3}}>{room.name}</div>
+                    <div style={{fontSize:8,fontWeight:600,color:'rgba(255,255,255,0.9)',lineHeight:1.2}}>{Math.round(room.sqft||0)} sf</div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
         </div>
       </div>
 
-      <div style={{ background:'#111', borderRadius:12, padding:8, marginBottom:14 }}>
-        <BlueprintOverlay imageSrc={image.src} rooms={rooms} />
-      </div>
-
-      <div style={{ background:'#fff8e1', border:'1px solid #ffe082', borderRadius:8, padding:'10px 14px', fontSize:12, color:'#5d4037', marginBottom:16, lineHeight:1.5 }}>
+      <div style={{background:'#fff8e1',border:'1px solid #ffe082',borderRadius:8,padding:'10px 14px',fontSize:12,color:'#5d4037',marginBottom:16,lineHeight:1.5}}>
         ⚠️ <strong>Verify on site before ordering materials.</strong> Estimated rooms (~) should be measured manually.
       </div>
 
-      <div style={{ fontWeight:700, fontSize:14, color:'#333', marginBottom:10 }}>Room breakdown</div>
-      <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(145px,1fr))', gap:8, marginBottom:16 }}>
+      <div style={{fontWeight:700,fontSize:14,color:'#333',marginBottom:10}}>Room breakdown</div>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill, minmax(145px,1fr))',gap:8,marginBottom:16}}>
         {rooms.map((room,i) => {
           const color = ROOM_COLORS[i%ROOM_COLORS.length]
           return (
-            <div key={i} style={{ background:'#fff', border:`2px solid ${color.border}`, borderRadius:10, padding:'10px 13px' }}>
-              <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:4 }}>
-                <div style={{ width:10, height:10, borderRadius:2, background:color.fill, border:`2px solid ${color.border}`, flexShrink:0 }} />
-                <div style={{ fontSize:10, color:'#999', textTransform:'uppercase', letterSpacing:'0.04em', fontWeight:600 }}>{room.name}</div>
+            <div key={i} style={{background:'#fff',border:`2px solid ${color.border}`,borderRadius:10,padding:'10px 13px'}}>
+              <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:4}}>
+                <div style={{width:10,height:10,borderRadius:2,background:color.fill,border:`2px solid ${color.border}`,flexShrink:0}} />
+                <div style={{fontSize:10,color:'#999',textTransform:'uppercase',letterSpacing:'0.04em',fontWeight:600}}>{room.name}</div>
               </div>
-              <div style={{ fontSize:20, fontWeight:700, color:'#111', lineHeight:1 }}>
-                {Math.round(room.sqft||0).toLocaleString()} <span style={{ fontSize:11, fontWeight:400, color:'#bbb' }}>sq ft</span>
-              </div>
-              {room.dimensions_label && <div style={{ fontSize:10, color:'#aaa', marginTop:3 }}>{room.dimensions_label}</div>}
-              <div style={{ marginTop:5 }}>
+              <div style={{fontSize:20,fontWeight:700,color:'#111',lineHeight:1}}>{Math.round(room.sqft||0).toLocaleString()} <span style={{fontSize:11,fontWeight:400,color:'#bbb'}}>sq ft</span></div>
+              {room.dimensions_label&&<div style={{fontSize:10,color:'#aaa',marginTop:3}}>{room.dimensions_label}</div>}
+              <div style={{marginTop:5}}>
                 {room.measured!==false
-                  ? <span style={{ fontSize:9, background:'#e8f5e9', color:'#2e7d32', borderRadius:3, padding:'1px 5px', fontWeight:600 }}>✓ MEASURED</span>
-                  : <span style={{ fontSize:9, background:'#fff8e1', color:'#f57f17', borderRadius:3, padding:'1px 5px', fontWeight:600 }}>~ ESTIMATED</span>}
+                  ?<span style={{fontSize:9,background:'#e8f5e9',color:'#2e7d32',borderRadius:3,padding:'1px 5px',fontWeight:600}}>✓ MEASURED</span>
+                  :<span style={{fontSize:9,background:'#fff8e1',color:'#f57f17',borderRadius:3,padding:'1px 5px',fontWeight:600}}>~ ESTIMATED</span>}
               </div>
             </div>
           )
         })}
       </div>
 
-      {scanData.notes && (
-        <div style={{ background:'#fff', border:'1px solid #ebebeb', borderRadius:10, padding:'14px 16px', fontSize:13, color:'#555', lineHeight:1.65, marginBottom:16 }}>
-          <div style={{ fontWeight:700, color:'#333', marginBottom:6 }}>📋 Installer notes</div>
+      {scanData.notes&&(
+        <div style={{background:'#fff',border:'1px solid #ebebeb',borderRadius:10,padding:'14px 16px',fontSize:13,color:'#555',lineHeight:1.65,marginBottom:16}}>
+          <div style={{fontWeight:700,color:'#333',marginBottom:6}}>📋 Installer notes</div>
           {scanData.notes}
         </div>
       )}
 
-      <button onClick={onReselect} style={{ width:'100%', padding:'13px', background:'transparent', color:ORANGE, border:`2px solid ${ORANGE}`, borderRadius:10, fontSize:14, fontWeight:700, cursor:'pointer', marginBottom:10 }}>
+      <button onClick={onReselect} style={{width:'100%',padding:'13px',background:'transparent',color:ORANGE,border:`2px solid ${ORANGE}`,borderRadius:10,fontSize:14,fontWeight:700,cursor:'pointer',marginBottom:10}}>
         ← Change Room Selection
       </button>
-      <button onClick={onReset} style={{ width:'100%', padding:'12px', background:'transparent', border:'1px solid #ddd', borderRadius:8, fontSize:13, color:'#888', cursor:'pointer' }}>
-        ↺ New Blueprint
-      </button>
+      <button onClick={onReset} style={{width:'100%',padding:'12px',background:'transparent',border:'1px solid #ddd',borderRadius:8,fontSize:13,color:'#888',cursor:'pointer'}}>↺ New Blueprint</button>
     </div>
   )
 }
 
 // ── Main App ──────────────────────────────────────────────────
 export default function App() {
-  const [screen,    setScreen]    = useState('upload')
-  const [image,     setImage]     = useState(null)
-  const [scanData,  setScanData]  = useState(null)
-  const [results,   setResults]   = useState(null)
-  const [loading,   setLoading]   = useState(false)
-  const [status,    setStatus]    = useState('')
-  const [error,     setError]     = useState('')
-  const [converting,setConverting]= useState(false)
+  const [screen,     setScreen]     = useState('upload')
+  const [image,      setImage]      = useState(null)
+  const [scanData,   setScanData]   = useState(null)
+  const [selected,   setSelected]   = useState(null)
+  const [results,    setResults]    = useState(null)
+  const [loading,    setLoading]    = useState(false)
+  const [status,     setStatus]     = useState('')
+  const [error,      setError]      = useState('')
+  const [converting, setConverting] = useState(false)
 
   const handleFile = useCallback((payload) => {
     if (payload.loading) { setConverting(true); setError(''); return }
     setConverting(false)
-    if (payload.error)  { setError(payload.error); return }
+    if (payload.error) { setError(payload.error); return }
     setError(''); setImage(payload); setScreen('preview')
   }, [])
 
@@ -452,20 +480,18 @@ export default function App() {
     finally { setLoading(false); setStatus('') }
   }
 
-  async function handleOverlay(selectedRooms) {
+  function handleSelectNext(selectedRooms) {
     if (!selectedRooms.length) return
-    setError(''); setLoading(true); setStatus('AI placing room overlays…')
-    try {
-      const data = await callOverlay(image.base64, image.mime, selectedRooms)
-      const boxMap = {}
-      ;(data.rooms||[]).forEach(r => { boxMap[r.name]=r.box })
-      const merged = selectedRooms.map(r => ({ ...r, box: boxMap[r.name]||null }))
-      setResults(merged); setScreen('results')
-    } catch(err) { setError('Overlay failed: '+(err.message||'Please try again.')) }
-    finally { setLoading(false); setStatus('') }
+    setSelected(selectedRooms)
+    setScreen('tap')
   }
 
-  function reset()    { setScreen('upload'); setImage(null); setScanData(null); setResults(null); setError(''); setConverting(false) }
+  function handleTapDone(roomsWithBoxes) {
+    setResults(roomsWithBoxes)
+    setScreen('results')
+  }
+
+  function reset()    { setScreen('upload'); setImage(null); setScanData(null); setSelected(null); setResults(null); setError(''); setConverting(false) }
   function reselect() { setScreen('select'); setResults(null); setError('') }
 
   return (
@@ -474,9 +500,10 @@ export default function App() {
       <Header />
       {screen==='upload'  && <UploadScreen onFile={handleFile} error={error} converting={converting} />}
       {screen==='preview' && <PreviewScreen image={image} onScan={handleScan} onReset={reset} loading={loading} statusMsg={status} error={error} />}
-      {screen==='select'  && <SelectScreen image={image} scanData={scanData} onOverlay={handleOverlay} onReset={reset} loading={loading} statusMsg={status} error={error} />}
+      {screen==='select'  && <SelectScreen image={image} scanData={scanData} onNext={handleSelectNext} onReset={reset} loading={loading} statusMsg={status} error={error} />}
+      {screen==='tap'     && <TapScreen image={image} rooms={selected} onDone={handleTapDone} onBack={()=>setScreen('select')} />}
       {screen==='results' && <ResultsScreen image={image} rooms={results} scanData={scanData} onReset={reset} onReselect={reselect} />}
-      <div style={{ textAlign:'center', padding:'12px', color:'#bbb', fontSize:11 }}>TopCoat Tech · Blueprint Analyzer</div>
+      <div style={{textAlign:'center',padding:'12px',color:'#bbb',fontSize:11}}>TopCoat Tech · Blueprint Analyzer</div>
     </div>
   )
 }
