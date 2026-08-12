@@ -44,8 +44,7 @@ async function pdfToImage(file) {
         const canvas = document.createElement('canvas')
         canvas.width = viewport.width
         canvas.height = viewport.height
-        const ctx = canvas.getContext('2d')
-        await page.render({ canvasContext: ctx, viewport }).promise
+        await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise
         const dataUrl = canvas.toDataURL('image/jpeg', 0.95)
         resolve({ src: dataUrl, base64: dataUrl.split(',')[1], mime: 'image/jpeg', name: file.name, size: file.size, fromPdf: true })
       } catch (err) { reject(new Error('PDF rendering failed: ' + err.message)) }
@@ -124,7 +123,6 @@ function UploadScreen({ onFile, error, converting }) {
         Take a Photo
       </button>
       <input ref={cameraRef} type="file" accept="image/*" capture="environment" style={{ display:'none' }} onChange={e => handleFiles(e.target.files)} />
-
       <div onClick={() => !converting && uploadRef.current?.click()}
         onDragOver={e=>{e.preventDefault();setDrag(true)}} onDragLeave={()=>setDrag(false)}
         onDrop={e=>{e.preventDefault();setDrag(false);handleFiles(e.dataTransfer.files)}}
@@ -168,7 +166,7 @@ function PreviewScreen({ image, onScan, onReset, loading, statusMsg, error }) {
 }
 
 // ── Room Selection Screen ─────────────────────────────────────
-function SelectScreen({ image, scanData, onNext, onReset, loading, statusMsg, error }) {
+function SelectScreen({ image, scanData, onNext, onReset }) {
   const [checked, setChecked] = useState(() => {
     const init = {}
     ;(scanData.rooms||[]).forEach(r => { init[r.id] = false })
@@ -213,82 +211,186 @@ function SelectScreen({ image, scanData, onNext, onReset, loading, statusMsg, er
           <div style={{color:ORANGE,fontSize:26,fontWeight:800}}>{Math.round(selectedSqft).toLocaleString()} <span style={{fontSize:13,color:'#aaa',fontWeight:400}}>sq ft</span></div>
         </div>
       )}
-      {error&&<div style={{background:'#fdecea',border:'1px solid #f5c6c6',borderRadius:8,padding:'12px 14px',color:'#c62828',fontSize:13,marginBottom:12}}>⚠️ {error}</div>}
       <button onClick={()=>onNext(selectedRooms)} disabled={selectedRooms.length===0}
         style={{width:'100%',padding:'15px',background:selectedRooms.length===0?'#ccc':ORANGE,color:'#fff',border:'none',borderRadius:10,fontSize:16,fontWeight:700,cursor:selectedRooms.length===0?'not-allowed':'pointer'}}>
-        Next — Place Rooms on Blueprint →
+        Next — Calibrate Scale →
       </button>
       <button onClick={onReset} style={{width:'100%',marginTop:10,padding:'10px',background:'transparent',border:'1px solid #ddd',borderRadius:8,fontSize:13,color:'#888',cursor:'pointer'}}>↺ Start Over</button>
     </div>
   )
 }
 
+// ── Calibration Screen ────────────────────────────────────────
+// User taps two ends of a known dimension line on the blueprint
+function CalibrateScreen({ image, scanData, onDone, onBack }) {
+  const [points, setPoints] = useState([])   // [{x,y}, {x,y}] in fractions
+  const [knownFt, setKnownFt] = useState('')
+  const imgRef = useRef()
+
+  function handleTap(e) {
+    if (points.length >= 2) return
+    const rect = imgRef.current.getBoundingClientRect()
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY
+    const x = (clientX - rect.left) / rect.width
+    const y = (clientY - rect.top)  / rect.height
+    setPoints(p => [...p, { x, y }])
+  }
+
+  function reset() { setPoints([]) }
+
+  function handleDone() {
+    if (points.length < 2 || !knownFt || isNaN(parseFloat(knownFt))) return
+    const ft = parseFloat(knownFt)
+    // Distance between two tapped points in fraction units
+    const dx = points[1].x - points[0].x
+    const dy = points[1].y - points[0].y
+    const distFraction = Math.sqrt(dx*dx + dy*dy)
+    // pixels per foot in fraction-of-image units
+    const fracPerFt = distFraction / ft
+    onDone(fracPerFt)
+  }
+
+  const canProceed = points.length === 2 && knownFt && !isNaN(parseFloat(knownFt)) && parseFloat(knownFt) > 0
+
+  return (
+    <div style={{ padding:'16px 16px 40px' }}>
+      {/* Instruction */}
+      <div style={{background:DARK,borderRadius:10,padding:'14px 16px',marginBottom:14,color:'#fff'}}>
+        <div style={{fontWeight:700,fontSize:14,marginBottom:4}}>Step 1 — Set the scale</div>
+        <div style={{fontSize:13,color:'#ccc',lineHeight:1.6}}>
+          Find a dimension line on the blueprint with a known measurement (e.g. an outer wall labeled "64'-0""). 
+          Tap each end of that line, then enter the measurement in feet below.
+        </div>
+      </div>
+
+      {/* Known feet input */}
+      <div style={{background:'#fff',border:'1px solid #e8e8e8',borderRadius:10,padding:'14px 16px',marginBottom:14}}>
+        <div style={{fontWeight:600,fontSize:13,color:'#444',marginBottom:8}}>Known measurement (in feet)</div>
+        <div style={{display:'flex',alignItems:'center',gap:8}}>
+          <input
+            type="number" placeholder="e.g. 64" value={knownFt}
+            onChange={e=>setKnownFt(e.target.value)}
+            style={{flex:1,padding:'10px 14px',fontSize:16,border:'2px solid #ddd',borderRadius:8,outline:'none'}}
+          />
+          <span style={{fontSize:14,color:'#888',fontWeight:500}}>feet</span>
+        </div>
+        {scanData.scale && scanData.scale !== 'not detected' && (
+          <div style={{fontSize:12,color:'#888',marginTop:8}}>AI detected scale: <strong>{scanData.scale}</strong></div>
+        )}
+      </div>
+
+      {/* Status */}
+      <div style={{display:'flex',gap:8,marginBottom:12}}>
+        <div style={{flex:1,padding:'10px',background:points.length>=1?'#e8f5e9':'#f5f5f5',border:`1px solid ${points.length>=1?'#a5d6a7':'#ddd'}`,borderRadius:8,textAlign:'center',fontSize:13,fontWeight:600,color:points.length>=1?'#2e7d32':'#999'}}>
+          {points.length>=1?'✓ Point 1 set':'Tap Point 1'}
+        </div>
+        <div style={{flex:1,padding:'10px',background:points.length>=2?'#e8f5e9':'#f5f5f5',border:`1px solid ${points.length>=2?'#a5d6a7':'#ddd'}`,borderRadius:8,textAlign:'center',fontSize:13,fontWeight:600,color:points.length>=2?'#2e7d32':'#999'}}>
+          {points.length>=2?'✓ Point 2 set':'Tap Point 2'}
+        </div>
+      </div>
+
+      {/* Blueprint tap area */}
+      <div style={{position:'relative',borderRadius:12,overflow:'hidden',background:'#111',marginBottom:12,touchAction:'none'}}
+        onClick={handleTap} onTouchEnd={e=>{e.preventDefault();handleTap(e)}}>
+        <img ref={imgRef} src={image.src} alt="Blueprint" style={{width:'100%',display:'block',userSelect:'none'}} draggable={false} />
+
+        {/* Draw calibration points and line */}
+        <div style={{position:'absolute',inset:0,pointerEvents:'none'}}>
+          {points.map((pt, i) => (
+            <div key={i} style={{
+              position:'absolute',
+              left:`${pt.x*100}%`, top:`${pt.y*100}%`,
+              width:16, height:16,
+              marginLeft:-8, marginTop:-8,
+              background: i===0?'#e53935':'#1565c0',
+              border:'2px solid #fff',
+              borderRadius:'50%',
+              boxShadow:'0 0 0 2px rgba(0,0,0,0.3)'
+            }} />
+          ))}
+          {points.length===2 && (
+            <svg style={{position:'absolute',inset:0,width:'100%',height:'100%'}}>
+              <line
+                x1={`${points[0].x*100}%`} y1={`${points[0].y*100}%`}
+                x2={`${points[1].x*100}%`} y2={`${points[1].y*100}%`}
+                stroke="#fff" strokeWidth="2" strokeDasharray="6,4" opacity="0.8"
+              />
+            </svg>
+          )}
+        </div>
+      </div>
+
+      <div style={{fontSize:12,color:'#888',textAlign:'center',marginBottom:14}}>
+        {points.length===0 && 'Tap the start of a known dimension line'}
+        {points.length===1 && 'Now tap the end of that same dimension line'}
+        {points.length===2 && 'Great! Enter the measurement above and tap Continue'}
+      </div>
+
+      {points.length > 0 && (
+        <button onClick={reset} style={{width:'100%',padding:'10px',background:'transparent',border:'1px solid #ddd',borderRadius:8,fontSize:13,color:'#888',cursor:'pointer',marginBottom:10}}>
+          ↺ Reset Points
+        </button>
+      )}
+
+      <button onClick={handleDone} disabled={!canProceed}
+        style={{width:'100%',padding:'15px',background:canProceed?ORANGE:'#ccc',color:'#fff',border:'none',borderRadius:10,fontSize:16,fontWeight:700,cursor:canProceed?'pointer':'not-allowed',marginBottom:10}}>
+        Continue — Place Rooms →
+      </button>
+      <button onClick={onBack} style={{width:'100%',padding:'10px',background:'transparent',border:'1px solid #ddd',borderRadius:8,fontSize:13,color:'#888',cursor:'pointer'}}>← Back</button>
+    </div>
+  )
+}
+
 // ── Tap-to-Place Screen ───────────────────────────────────────
-function TapScreen({ image, rooms, onDone, onBack }) {
+function TapScreen({ image, rooms, fracPerFt, onDone, onBack }) {
   const [placements, setPlacements] = useState({})
   const [currentIdx, setCurrentIdx] = useState(0)
   const imgRef = useRef()
 
   const currentRoom = rooms[currentIdx]
   const allPlaced   = rooms.every(r => placements[r.id])
+  const placedCount = Object.keys(placements).length
 
   function handleTap(e) {
+    if (!currentRoom) return
     const rect = imgRef.current.getBoundingClientRect()
     const clientX = e.touches ? e.touches[0].clientX : e.clientX
     const clientY = e.touches ? e.touches[0].clientY : e.clientY
-    const x = (clientX - rect.left)  / rect.width
-    const y = (clientY - rect.top)   / rect.height
+    const x = (clientX - rect.left) / rect.width
+    const y = (clientY - rect.top)  / rect.height
 
-    // Calculate box size from sqft — assume roughly square, scaled to image
-    // We'll use aspect ratio of image to size the box proportionally
-    const imgW = imgRef.current.naturalWidth  || rect.width
-    const imgH = imgRef.current.naturalHeight || rect.height
-    const aspect = imgW / imgH
+    // Use actual room dimensions scaled by fracPerFt
+    const wFt = currentRoom.width_ft  || Math.sqrt(currentRoom.sqft || 100)
+    const hFt = currentRoom.length_ft || Math.sqrt(currentRoom.sqft || 100)
+    const boxW = Math.min(wFt * fracPerFt, 0.5)
+    const boxH = Math.min(hFt * fracPerFt, 0.5)
 
-    // Estimate room dimensions in image-fraction units
-    // Assume total blueprint area is roughly the image area
-    // sqft fraction of total = box area fraction of image
-    const totalSqft = rooms.reduce((s,r)=>s+(r.sqft||100),0)
-    const roomFraction = (currentRoom.sqft||100) / Math.max(totalSqft, 1000)
-    const boxArea = Math.min(roomFraction * 1.8, 0.35) // scale up for visibility, cap at 35%
-    const boxH = Math.sqrt(boxArea / aspect)
-    const boxW = boxH * aspect
-
-    // Center the box on the tap point, keep within bounds
+    // Center box on tap, clamp to image bounds
     const bx = Math.max(0, Math.min(x - boxW/2, 1 - boxW))
     const by = Math.max(0, Math.min(y - boxH/2, 1 - boxH))
 
     setPlacements(p => ({ ...p, [currentRoom.id]: { x: bx, y: by, w: boxW, h: boxH } }))
 
     // Auto-advance to next unplaced room
-    const nextIdx = rooms.findIndex((r,i) => i > currentIdx && !placements[r.id] && r.id !== currentRoom.id)
-    if (nextIdx !== -1) setCurrentIdx(nextIdx)
-    else {
-      // find any unplaced
-      const anyUnplaced = rooms.findIndex(r => r.id !== currentRoom.id && !placements[r.id])
-      if (anyUnplaced !== -1) setCurrentIdx(anyUnplaced)
-    }
-  }
-
-  function handleDone() {
-    const roomsWithBoxes = rooms.map(r => ({ ...r, box: placements[r.id] || null }))
-    onDone(roomsWithBoxes)
+    const nextUnplaced = rooms.findIndex((r,i) => i !== currentIdx && !placements[r.id] && r.id !== currentRoom.id)
+    if (nextUnplaced !== -1) setCurrentIdx(nextUnplaced)
   }
 
   const color = currentRoom ? ROOM_COLORS[currentIdx % ROOM_COLORS.length] : null
-  const placedCount = Object.keys(placements).length
 
   return (
     <div style={{ padding:'16px 16px 40px' }}>
-      {/* Instruction bar */}
-      <div style={{ background: currentRoom ? color.border : '#2e7d32', borderRadius:10, padding:'12px 16px', marginBottom:12, color:'#fff' }}>
+      <div style={{background:currentRoom?color.border:'#2e7d32',borderRadius:10,padding:'12px 16px',marginBottom:12,color:'#fff'}}>
         {currentRoom ? (
           <>
-            <div style={{fontWeight:700,fontSize:14}}>Tap the center of: {currentRoom.name}</div>
-            <div style={{fontSize:12,opacity:0.85,marginTop:2}}>{currentRoom.dimensions_label||''} · {Math.round(currentRoom.sqft||0)} sq ft · {placedCount}/{rooms.length} placed</div>
+            <div style={{fontWeight:700,fontSize:14}}>Tap center of: {currentRoom.name}</div>
+            <div style={{fontSize:12,opacity:0.85,marginTop:2}}>
+              {currentRoom.dimensions_label||''} · {Math.round(currentRoom.sqft||0)} sq ft · {placedCount}/{rooms.length} placed
+            </div>
           </>
         ) : (
-          <div style={{fontWeight:700,fontSize:14}}>✓ All rooms placed! Review below and tap Done.</div>
+          <div style={{fontWeight:700,fontSize:14}}>✓ All rooms placed! Tap Done.</div>
         )}
       </div>
 
@@ -297,37 +399,31 @@ function TapScreen({ image, rooms, onDone, onBack }) {
         {rooms.map((room,i) => {
           const c = ROOM_COLORS[i%ROOM_COLORS.length]
           const placed = !!placements[room.id]
-          const isCurrent = room.id === currentRoom?.id
           return (
             <div key={room.id} onClick={()=>setCurrentIdx(i)}
-              style={{padding:'4px 10px',borderRadius:20,border:`2px solid ${c.border}`,background:placed?c.border:'#fff',color:placed?'#fff':c.border,fontSize:11,fontWeight:700,cursor:'pointer',opacity:isCurrent?1:0.7}}>
+              style={{padding:'4px 10px',borderRadius:20,border:`2px solid ${c.border}`,background:placed?c.border:'#fff',color:placed?'#fff':c.border,fontSize:11,fontWeight:700,cursor:'pointer',opacity:room.id===currentRoom?.id?1:0.7}}>
               {placed?'✓ ':''}{room.name}
             </div>
           )
         })}
       </div>
 
-      {/* Blueprint tap area */}
-      <div style={{position:'relative',borderRadius:12,overflow:'hidden',background:'#111',marginBottom:14,touchAction:'none'}}
+      {/* Blueprint */}
+      <div style={{position:'relative',borderRadius:12,overflow:'hidden',background:'#111',marginBottom:12,touchAction:'none'}}
         onClick={handleTap} onTouchEnd={e=>{e.preventDefault();handleTap(e)}}>
-        <img ref={imgRef} src={image.src} alt="Blueprint"
-          style={{width:'100%',display:'block',userSelect:'none',WebkitUserSelect:'none'}}
-          draggable={false} />
-
-        {/* Draw placed boxes */}
+        <img ref={imgRef} src={image.src} alt="Blueprint" style={{width:'100%',display:'block',userSelect:'none'}} draggable={false} />
         <div style={{position:'absolute',inset:0,pointerEvents:'none'}}>
           {rooms.map((room,i) => {
             const box = placements[room.id]
             if (!box) return null
             const c = ROOM_COLORS[i%ROOM_COLORS.length]
-            const isCurrent = room.id === currentRoom?.id
             return (
               <div key={room.id} style={{
                 position:'absolute',
                 left:`${box.x*100}%`,top:`${box.y*100}%`,
                 width:`${box.w*100}%`,height:`${box.h*100}%`,
-                background:c.fill,border:`${isCurrent?3:2}px solid ${c.border}`,
-                borderRadius:4,boxSizing:'border-box',
+                background:c.fill,border:`2.5px solid ${c.border}`,
+                borderRadius:3,boxSizing:'border-box',
                 display:'flex',alignItems:'center',justifyContent:'center',overflow:'hidden'
               }}>
                 <div style={{background:c.border,borderRadius:3,padding:'2px 5px',maxWidth:'90%',textAlign:'center'}}>
@@ -337,25 +433,18 @@ function TapScreen({ image, rooms, onDone, onBack }) {
               </div>
             )
           })}
-
-          {/* Crosshair hint for current room */}
-          {currentRoom && (
-            <div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',pointerEvents:'none'}}>
-              <div style={{color:'rgba(255,255,255,0.25)',fontSize:48,fontWeight:100}}>+</div>
-            </div>
-          )}
         </div>
       </div>
 
       <div style={{fontSize:12,color:'#888',textAlign:'center',marginBottom:14}}>
-        Tap the blueprint to place each room · Tap a pill above to re-place a room
+        Tap a room on the blueprint to place it · Tap a pill to re-place
       </div>
 
-      <button onClick={handleDone} disabled={placedCount===0}
+      <button onClick={()=>onDone(rooms.map(r=>({...r,box:placements[r.id]||null})))} disabled={placedCount===0}
         style={{width:'100%',padding:'15px',background:allPlaced?ORANGE:placedCount>0?'#ff8f00':'#ccc',color:'#fff',border:'none',borderRadius:10,fontSize:16,fontWeight:700,cursor:placedCount===0?'not-allowed':'pointer',marginBottom:10}}>
-        {allPlaced ? '✓ Done — Generate Results' : `Done (${placedCount}/${rooms.length} placed)`}
+        {allPlaced?'✓ Done — Generate Results':`Done (${placedCount}/${rooms.length} placed)`}
       </button>
-      <button onClick={onBack} style={{width:'100%',padding:'10px',background:'transparent',border:'1px solid #ddd',borderRadius:8,fontSize:13,color:'#888',cursor:'pointer'}}>← Back to Room List</button>
+      <button onClick={onBack} style={{width:'100%',padding:'10px',background:'transparent',border:'1px solid #ddd',borderRadius:8,fontSize:13,color:'#888',cursor:'pointer'}}>← Back</button>
     </div>
   )
 }
@@ -372,7 +461,6 @@ function ResultsScreen({ image, rooms, scanData, onReset, onReselect }) {
         <div style={{background:'#fff3e0',color:'#bf360c',border:'1px solid #ffcc80',borderRadius:6,padding:'4px 10px',fontSize:12,fontWeight:600}}>Scale: {scanData.scale||'not detected'}</div>
         <button onClick={onReset} style={{background:'transparent',border:'1px solid #ddd',borderRadius:6,padding:'4px 12px',fontSize:12,color:'#666',cursor:'pointer'}}>New Blueprint</button>
       </div>
-
       <div style={{background:DARK,borderRadius:12,padding:'16px 20px',display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:16}}>
         <div>
           <div style={{color:'#aaa',fontSize:13}}>Total coating area</div>
@@ -381,7 +469,6 @@ function ResultsScreen({ image, rooms, scanData, onReset, onReselect }) {
         <div style={{color:ORANGE,fontSize:30,fontWeight:800,lineHeight:1}}>{total.toLocaleString()} <span style={{fontSize:14,color:'#aaa',fontWeight:400}}>sq ft</span></div>
       </div>
 
-      {/* Blueprint with overlays */}
       <div style={{background:'#111',borderRadius:12,padding:8,marginBottom:14,position:'relative'}}>
         <div style={{position:'relative',width:'100%'}}>
           <img src={image.src} alt="Blueprint" style={{width:'100%',display:'block',borderRadius:8}} />
@@ -438,8 +525,7 @@ function ResultsScreen({ image, rooms, scanData, onReset, onReselect }) {
 
       {scanData.notes&&(
         <div style={{background:'#fff',border:'1px solid #ebebeb',borderRadius:10,padding:'14px 16px',fontSize:13,color:'#555',lineHeight:1.65,marginBottom:16}}>
-          <div style={{fontWeight:700,color:'#333',marginBottom:6}}>📋 Installer notes</div>
-          {scanData.notes}
+          <div style={{fontWeight:700,color:'#333',marginBottom:6}}>📋 Installer notes</div>{scanData.notes}
         </div>
       )}
 
@@ -457,6 +543,7 @@ export default function App() {
   const [image,      setImage]      = useState(null)
   const [scanData,   setScanData]   = useState(null)
   const [selected,   setSelected]   = useState(null)
+  const [fracPerFt,  setFracPerFt]  = useState(null)
   const [results,    setResults]    = useState(null)
   const [loading,    setLoading]    = useState(false)
   const [status,     setStatus]     = useState('')
@@ -483,6 +570,11 @@ export default function App() {
   function handleSelectNext(selectedRooms) {
     if (!selectedRooms.length) return
     setSelected(selectedRooms)
+    setScreen('calibrate')
+  }
+
+  function handleCalibrateDone(fpf) {
+    setFracPerFt(fpf)
     setScreen('tap')
   }
 
@@ -491,18 +583,19 @@ export default function App() {
     setScreen('results')
   }
 
-  function reset()    { setScreen('upload'); setImage(null); setScanData(null); setSelected(null); setResults(null); setError(''); setConverting(false) }
+  function reset() { setScreen('upload'); setImage(null); setScanData(null); setSelected(null); setFracPerFt(null); setResults(null); setError(''); setConverting(false) }
   function reselect() { setScreen('select'); setResults(null); setError('') }
 
   return (
     <div style={{ minHeight:'100vh', background:'#f4f4f2' }}>
       <style>{`@keyframes spin{to{transform:rotate(360deg)}} .fade-in{animation:fadeIn 0.3s ease forwards} @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}`}</style>
       <Header />
-      {screen==='upload'  && <UploadScreen onFile={handleFile} error={error} converting={converting} />}
-      {screen==='preview' && <PreviewScreen image={image} onScan={handleScan} onReset={reset} loading={loading} statusMsg={status} error={error} />}
-      {screen==='select'  && <SelectScreen image={image} scanData={scanData} onNext={handleSelectNext} onReset={reset} loading={loading} statusMsg={status} error={error} />}
-      {screen==='tap'     && <TapScreen image={image} rooms={selected} onDone={handleTapDone} onBack={()=>setScreen('select')} />}
-      {screen==='results' && <ResultsScreen image={image} rooms={results} scanData={scanData} onReset={reset} onReselect={reselect} />}
+      {screen==='upload'    && <UploadScreen    onFile={handleFile} error={error} converting={converting} />}
+      {screen==='preview'   && <PreviewScreen   image={image} onScan={handleScan} onReset={reset} loading={loading} statusMsg={status} error={error} />}
+      {screen==='select'    && <SelectScreen    image={image} scanData={scanData} onNext={handleSelectNext} onReset={reset} />}
+      {screen==='calibrate' && <CalibrateScreen image={image} scanData={scanData} onDone={handleCalibrateDone} onBack={()=>setScreen('select')} />}
+      {screen==='tap'       && <TapScreen       image={image} rooms={selected} fracPerFt={fracPerFt} onDone={handleTapDone} onBack={()=>setScreen('calibrate')} />}
+      {screen==='results'   && <ResultsScreen   image={image} rooms={results} scanData={scanData} onReset={reset} onReselect={reselect} />}
       <div style={{textAlign:'center',padding:'12px',color:'#bbb',fontSize:11}}>TopCoat Tech · Blueprint Analyzer</div>
     </div>
   )
