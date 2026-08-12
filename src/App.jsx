@@ -239,18 +239,23 @@ function CalibrateScreen({ image, scanData, onDone, onBack }) {
 
   function reset() { setPoints([]) }
 
-  function handleDone() {
-    if (points.length < 2 || !knownFt || isNaN(parseFloat(knownFt))) return
+  function calcFracPerFt() {
+    if (points.length < 2 || !knownFt || isNaN(parseFloat(knownFt))) return null
     const ft = parseFloat(knownFt)
-    // Distance between two tapped points in fraction units
     const dx = points[1].x - points[0].x
     const dy = points[1].y - points[0].y
     const distFraction = Math.sqrt(dx*dx + dy*dy)
-    // pixels per foot in fraction-of-image units
-    const fracPerFt = distFraction / ft
-    onDone(fracPerFt)
+    return distFraction / ft
   }
 
+  function handleDone() {
+    const fpf = calcFracPerFt()
+    if (!fpf) return
+    onDone(fpf)
+  }
+
+  const fracPerFtPreview = calcFracPerFt()
+  const scaleWarning = fracPerFtPreview && (fracPerFtPreview < 0.002 || fracPerFtPreview > 0.05)
   const canProceed = points.length === 2 && knownFt && !isNaN(parseFloat(knownFt)) && parseFloat(knownFt) > 0
 
   return (
@@ -322,9 +327,11 @@ function CalibrateScreen({ image, scanData, onDone, onBack }) {
       </div>
 
       <div style={{fontSize:12,color:'#888',textAlign:'center',marginBottom:14}}>
-        {points.length===0 && 'Tap the start of a known dimension line'}
-        {points.length===1 && 'Now tap the end of that same dimension line'}
-        {points.length===2 && 'Great! Enter the measurement above and tap Continue'}
+        {points.length===0 && 'Tap the START of a known dimension line on the blueprint'}
+        {points.length===1 && 'Now tap the END of that same dimension line'}
+        {points.length===2 && !knownFt && 'Great! Now enter the measurement in feet above'}
+        {points.length===2 && knownFt && !scaleWarning && <span style={{color:'#2e7d32',fontWeight:600}}>✓ Scale looks good — 1 foot = {(fracPerFtPreview*100).toFixed(2)}% of image width</span>}
+        {points.length===2 && knownFt && scaleWarning && <span style={{color:'#c62828',fontWeight:600}}>⚠️ Scale seems off — try tapping further apart on a longer dimension line</span>}
       </div>
 
       {points.length > 0 && (
