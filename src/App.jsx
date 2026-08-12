@@ -172,8 +172,30 @@ function SelectScreen({ image, scanData, onNext, onReset }) {
     ;(scanData.rooms||[]).forEach(r => { init[r.id] = false })
     return init
   })
+  const [dims, setDims] = useState(() => {
+    const init = {}
+    ;(scanData.rooms||[]).forEach(r => {
+      init[r.id] = {
+        w: String(r.width_ft  || Math.round(Math.sqrt(r.sqft||100))),
+        l: String(r.length_ft || Math.round(Math.sqrt(r.sqft||100)))
+      }
+    })
+    return init
+  })
+
+  function updateDim(id, field, val) {
+    setDims(p => ({ ...p, [id]: { ...p[id], [field]: val } }))
+  }
+
+  function getRoomWithDims(room) {
+    const d = dims[room.id] || {}
+    const w = parseFloat(d.w) || 0
+    const l = parseFloat(d.l) || 0
+    return { ...room, width_ft: w, length_ft: l, sqft: Math.round(w * l) }
+  }
+
   const rooms = scanData.rooms || []
-  const selectedRooms = rooms.filter(r => checked[r.id])
+  const selectedRooms = rooms.filter(r => checked[r.id]).map(getRoomWithDims)
   const selectedSqft  = selectedRooms.reduce((s,r) => s+(r.sqft||0), 0)
 
   return (
@@ -183,27 +205,58 @@ function SelectScreen({ image, scanData, onNext, onReset }) {
       </div>
       {scanData.scale && <div style={{background:'#fff3e0',border:'1px solid #ffcc80',borderRadius:6,padding:'6px 12px',fontSize:12,color:'#bf360c',fontWeight:600,marginBottom:14,display:'inline-block'}}>Scale: {scanData.scale}</div>}
       <div style={{fontWeight:700,fontSize:16,color:'#222',marginBottom:4}}>Select rooms to coat</div>
-      <div style={{fontSize:13,color:'#888',marginBottom:14}}>Check only rooms TopCoat will be installing flooring in.</div>
+      <div style={{fontSize:13,color:'#888',marginBottom:14}}>Check rooms — then verify or correct the dimensions the AI read.</div>
       <div style={{display:'flex',gap:8,marginBottom:14}}>
         <button onClick={()=>{const a={};rooms.forEach(r=>{a[r.id]=true});setChecked(a)}} style={{flex:1,padding:'8px',background:'#fff',border:'1px solid #ddd',borderRadius:7,fontSize:13,cursor:'pointer',color:'#444'}}>Select All</button>
         <button onClick={()=>{const a={};rooms.forEach(r=>{a[r.id]=false});setChecked(a)}} style={{flex:1,padding:'8px',background:'#fff',border:'1px solid #ddd',borderRadius:7,fontSize:13,cursor:'pointer',color:'#444'}}>Clear All</button>
       </div>
       <div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:20}}>
-        {rooms.map(room => (
-          <div key={room.id} onClick={()=>setChecked(p=>({...p,[room.id]:!p[room.id]}))}
-            style={{display:'flex',alignItems:'center',gap:12,background:'#fff',border:`2px solid ${checked[room.id]?ORANGE:'#e8e8e8'}`,borderRadius:10,padding:'12px 14px',cursor:'pointer',userSelect:'none'}}>
-            <div style={{width:22,height:22,borderRadius:5,border:`2px solid ${checked[room.id]?ORANGE:'#ccc'}`,background:checked[room.id]?ORANGE:'#fff',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
-              {checked[room.id]&&<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+        {rooms.map(room => {
+          const d = dims[room.id] || {}
+          const w = parseFloat(d.w)||0
+          const l = parseFloat(d.l)||0
+          const sqft = Math.round(w*l)
+          return (
+            <div key={room.id} style={{background:'#fff',border:`2px solid ${checked[room.id]?ORANGE:'#e8e8e8'}`,borderRadius:10,padding:'12px 14px'}}>
+              <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:checked[room.id]?10:0,cursor:'pointer'}} onClick={()=>setChecked(p=>({...p,[room.id]:!p[room.id]}))}>
+                <div style={{width:22,height:22,borderRadius:5,border:`2px solid ${checked[room.id]?ORANGE:'#ccc'}`,background:checked[room.id]?ORANGE:'#fff',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+                  {checked[room.id]&&<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                </div>
+                <div style={{flex:1}}>
+                  <div style={{fontWeight:600,fontSize:14,color:'#222'}}>{room.name}</div>
+                  {!checked[room.id] && <div style={{fontSize:12,color:'#aaa'}}>{room.dimensions_label||`${Math.round(room.sqft||0)} sq ft`}</div>}
+                </div>
+                {room.measured!==false
+                  ?<span style={{fontSize:10,background:'#e8f5e9',color:'#2e7d32',borderRadius:3,padding:'2px 6px',fontWeight:600}}>MEASURED</span>
+                  :<span style={{fontSize:10,background:'#fff8e1',color:'#f57f17',borderRadius:3,padding:'2px 6px',fontWeight:600}}>ESTIMATED</span>}
+              </div>
+              {checked[room.id] && (
+                <div style={{background:'#f9f9f9',borderRadius:8,padding:'10px 12px'}} onClick={e=>e.stopPropagation()}>
+                  <div style={{fontSize:11,color:'#888',fontWeight:600,marginBottom:8,textTransform:'uppercase',letterSpacing:'0.04em'}}>Verify / correct dimensions</div>
+                  <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+                    <div style={{display:'flex',alignItems:'center',gap:6}}>
+                      <span style={{fontSize:12,color:'#666'}}>Width</span>
+                      <input type="number" value={d.w} onChange={e=>updateDim(room.id,'w',e.target.value)}
+                        style={{width:64,padding:'6px 8px',fontSize:14,border:'2px solid #ddd',borderRadius:6,outline:'none',textAlign:'center'}} />
+                      <span style={{fontSize:12,color:'#999'}}>ft</span>
+                    </div>
+                    <span style={{color:'#ccc',fontSize:16}}>×</span>
+                    <div style={{display:'flex',alignItems:'center',gap:6}}>
+                      <span style={{fontSize:12,color:'#666'}}>Length</span>
+                      <input type="number" value={d.l} onChange={e=>updateDim(room.id,'l',e.target.value)}
+                        style={{width:64,padding:'6px 8px',fontSize:14,border:'2px solid #ddd',borderRadius:6,outline:'none',textAlign:'center'}} />
+                      <span style={{fontSize:12,color:'#999'}}>ft</span>
+                    </div>
+                    <div style={{marginLeft:'auto',textAlign:'right'}}>
+                      <div style={{fontSize:20,fontWeight:700,color:ORANGE,lineHeight:1}}>{sqft.toLocaleString()}</div>
+                      <div style={{fontSize:11,color:'#aaa'}}>sq ft</div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
-            <div style={{flex:1}}>
-              <div style={{fontWeight:600,fontSize:14,color:'#222'}}>{room.name}</div>
-              <div style={{fontSize:12,color:'#888',marginTop:1}}>{room.dimensions_label||`~${Math.round(room.sqft||0)} sq ft`}{room.dimensions_label&&<span style={{color:'#aaa'}}> · {Math.round(room.sqft||0)} sq ft</span>}</div>
-            </div>
-            {room.measured!==false
-              ?<span style={{fontSize:10,background:'#e8f5e9',color:'#2e7d32',borderRadius:3,padding:'2px 6px',fontWeight:600}}>MEASURED</span>
-              :<span style={{fontSize:10,background:'#fff8e1',color:'#f57f17',borderRadius:3,padding:'2px 6px',fontWeight:600}}>ESTIMATED</span>}
-          </div>
-        ))}
+          )
+        })}
       </div>
       {selectedRooms.length>0&&(
         <div style={{background:DARK,borderRadius:10,padding:'14px 18px',display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
@@ -219,6 +272,7 @@ function SelectScreen({ image, scanData, onNext, onReset }) {
     </div>
   )
 }
+
 
 // ── Calibration Screen ────────────────────────────────────────
 // User taps two ends of a known dimension line on the blueprint
