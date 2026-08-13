@@ -122,30 +122,41 @@ Respond ONLY with JSON: {"name": "Room Name", "confidence": "high/medium/low"}`
 
 // ── Save blueprint image to photo album ───────────────────────
 async function saveToPhotos(canvasEl, jobName) {
-  return new Promise((resolve, reject) => {
-    canvasEl.toBlob(async (blob) => {
-      try {
-        const filename = `${(jobName||'TopCoat').replace(/[^a-zA-Z0-9]/g,'-')}-blueprint.jpg`
-        const url = URL.createObjectURL(blob)
+  // iOS Safari blocks canvas.toBlob() on large images — use toDataURL instead
+  const dataUrl = canvasEl.toDataURL('image/jpeg', 0.92)
+  const filename = `${(jobName||'TopCoat').replace(/[^a-zA-Z0-9]/g,'-')}-blueprint.jpg`
 
-        // On iOS Safari: create a link and trigger it — user gets "Save to Photos" option
-        const a = document.createElement('a')
-        a.href = url
-        a.download = filename
-        a.style.display = 'none'
-        document.body.appendChild(a)
-        a.click()
-        document.body.removeChild(a)
+  // Try download link first (works on desktop, sometimes on iOS)
+  try {
+    const a = document.createElement('a')
+    a.href = dataUrl
+    a.download = filename
+    a.style.display = 'none'
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+  } catch(e) {}
 
-        // Also show the image in a new tab as fallback (long-press → Save to Photos on iPhone)
-        setTimeout(() => {
-          URL.revokeObjectURL(url)
-        }, 10000)
-
-        resolve('saved')
-      } catch (err) { reject(err) }
-    }, 'image/jpeg', 0.95)
-  })
+  // On iOS: open in new tab — user long-presses image to Save to Photos
+  setTimeout(() => {
+    const win = window.open('', '_blank')
+    if (win) {
+      win.document.write(`
+        <html><head><title>${filename}</title>
+        <meta name="viewport" content="width=device-width,initial-scale=1">
+        <style>body{margin:0;background:#111;display:flex;flex-direction:column;align-items:center;padding:16px}
+        img{max-width:100%;border-radius:8px}
+        p{color:#fff;font-family:sans-serif;font-size:14px;text-align:center;margin-top:12px}
+        </style></head>
+        <body>
+          <p>📸 <strong>Long-press the image below → "Save to Photos"</strong></p>
+          <img src="${dataUrl}" alt="Blueprint" />
+          <p style="color:#aaa;margin-top:8px">TopCoat Tech · ${jobName||'Blueprint'}</p>
+        </body></html>
+      `)
+      win.document.close()
+    }
+  }, 300)
 }
 
 // ── Header ────────────────────────────────────────────────────
@@ -609,81 +620,95 @@ function ResultsScreen({ image, rooms, jobName, onReset, onEdit }) {
   async function handleSave() {
     setSaving(true)
     try {
-      // Build a high-res canvas with blueprint + overlays + legend
-      const img = new Image()
-      img.src = image.src
-      await new Promise(res => { img.onload = res })
+      // Load image from base64 - avoids canvas taint on iOS Safari
+      const img = await new Promise((resolve, reject) => {
+        const i = new Image()
+        i.onload = () => resolve(i)
+        i.onerror = (e) => reject(new Error('Image failed to load'))
+        // Use base64 directly to avoid CORS/taint issues
+        i.src = `data:${image.mime};base64,${image.base64}`
+      })
 
-      const scale   = 2 // 2x for sharpness
-      const imgW    = img.naturalWidth
-      const imgH    = img.naturalHeight
+      const imgW    = img.naturalWidth  || img.width  || 1200
+      const imgH    = img.naturalHeight || img.height || 900
+      const scale   = 2
       const legendH = Math.max(rooms.length * 100 + 260, 400)
       const canvas  = document.createElement('canvas')
       canvas.width  = imgW * scale
       canvas.height = (imgH + legendH) * scale
       const ctx = canvas.getContext('2d')
+      if (!ctx) throw new Error('Canvas not supported')
       ctx.scale(scale, scale)
 
-      // Dark background
+      // Background
       ctx.fillStyle = '#1c1c2e'
       ctx.fillRect(0, 0, imgW, imgH + legendH)
 
-      // Draw blueprint
+      // Blueprint
       ctx.drawImage(img, 0, 0, imgW, imgH)
 
-      // Draw room polygons
+      // Room polygons
       rooms.forEach(room => {
+        if (!room.points || room.points.length < 3) return
         ctx.beginPath()
-        room.points.forEach((pt,i) => {
-          const x = pt.x * imgW, y = pt.y * imgH
-          i===0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y)
+        room.points.forEach((pt, i) => {
+          const x = pt.x * imgW
+          const y = pt.y * imgH
+          i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y)
         })
         ctx.closePath()
-        ctx.fillStyle = room.color.fill
+        ctx.fillStyle = room.color?.fill || 'rgba(255,100,100,0.3)'
         ctx.fill()
-        ctx.strokeStyle = room.color.border
-        ctx.lineWidth = 2
+        ctx.strokeStyle = room.color?.border || '#e53935'
+        ctx.lineWidth = 3
         ctx.stroke()
-
-        // Label
         const c = centroid(room.points)
-        ctx.fillStyle = room.color.border
-        ctx.font = 'bold 14px Arial'
+        ctx.fillStyle = room.color?.border || '#e53935'
+        ctx.font = 'bold 16px Arial'
         ctx.textAlign = 'center'
-        ctx.fillText(room.name, c.x * imgW, c.y * imgH - 2)
-        ctx.font = '11px Arial'
+        ctx.fillText(room.name || 'Room', c.x * imgW, c.y * imgH - 4)
+        ctx.font = '13px Arial'
         ctx.fillStyle = '#fff'
-        ctx.fillText(`${room.sqft.toLocaleString()} sf`, c.x * imgW, c.y * imgH + 14)
+        ctx.fillText(`${(room.sqft||0).toLocaleString()} sf`, c.x * imgW, c.y * imgH + 14)
       })
 
-      // Legend area
+      // Legend
       const ly = imgH + 10
+      ctx.textAlign = 'left'
       ctx.fillStyle = '#fff'
       ctx.font = 'bold 48px Arial'
-      ctx.textAlign = 'left'
-      ctx.fillText(jobName || 'TopCoat Tech Blueprint', 20, ly + 36)
+      ctx.fillText(jobName || 'TopCoat Tech Blueprint', 20, ly + 50)
       ctx.font = '36px Arial'
       ctx.fillStyle = '#aaa'
-      ctx.fillText(`Total: ${totalSqft.toLocaleString()} sq ft  |  ${totalPerim} ft perimeter`, 20, ly + 80)
+      ctx.fillText(`Total: ${totalSqft.toLocaleString()} sq ft  |  ${totalPerim} ft perimeter`, 20, ly + 96)
 
       rooms.forEach((room, i) => {
-        const ry = ly + 120 + i * 100
-        ctx.fillStyle = room.color.border
+        const ry = ly + 130 + i * 100
+        ctx.fillStyle = room.color?.border || '#e53935'
         ctx.fillRect(20, ry, 36, 36)
         ctx.fillStyle = '#fff'
         ctx.font = 'bold 32px Arial'
-        ctx.fillText(room.name, 68, ry + 28)
+        ctx.fillText(room.name || 'Room', 68, ry + 28)
         ctx.font = '26px Arial'
         ctx.fillStyle = '#ccc'
-        ctx.fillText(`${room.sqft.toLocaleString()} sq ft  |  ${room.perim} ft perimeter`, 68, ry + 64)
+        ctx.fillText(`${(room.sqft||0).toLocaleString()} sq ft  |  ${room.perim||0} ft perimeter`, 68, ry + 64)
       })
 
-      await saveToPhotos(canvas, jobName || 'TopCoat-Blueprint')
+      saveToPhotos(canvas, jobName || 'TopCoat-Blueprint')
       setSaved(true)
     } catch (err) {
-      // Ignore user cancellation of share sheet
-      if (!err.message?.toLowerCase().includes('cancel') && !err.message?.toLowerCase().includes('abort')) {
-        alert('Could not save: ' + err.message)
+      console.error('Save error:', err)
+      // Last resort — open image in new tab
+      try {
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.85)
+        const win = window.open('', '_blank')
+        if (win) {
+          win.document.write(`<html><body style="margin:0;background:#111"><p style="color:#fff;font-family:sans-serif;padding:16px;text-align:center">Long-press image → Save to Photos</p><img src="${dataUrl}" style="max-width:100%"></body></html>`)
+          win.document.close()
+          setSaved(true)
+        }
+      } catch(e2) {
+        alert('Could not save image. Try taking a screenshot instead.')
       }
     } finally { setSaving(false) }
   }
@@ -754,7 +779,7 @@ function ResultsScreen({ image, rooms, jobName, onReset, onEdit }) {
       {/* Save button */}
       <button onClick={handleSave} disabled={saving}
         style={{width:'100%',padding:'15px',background:saved?'#2e7d32':saving?'#888':ORANGE,color:'#fff',border:'none',borderRadius:10,fontSize:15,fontWeight:700,cursor:saving?'not-allowed':'pointer',marginBottom:10}}>
-        {saved ? '✓ Image downloaded — open it and Save to Photos' : saving ? 'Building image…' : '📸 Download & Save to Photos'}
+        {saved ? '✓ Saved — check new tab or Files app' : saving ? 'Building image…' : '📸 Save / Export Image'}
       </button>
       <button onClick={onEdit} style={{width:'100%',padding:'12px',background:'transparent',color:ORANGE,border:`2px solid ${ORANGE}`,borderRadius:10,fontSize:14,fontWeight:700,cursor:'pointer',marginBottom:10}}>← Edit Rooms</button>
       <button onClick={onReset} style={{width:'100%',padding:'12px',background:'transparent',border:'1px solid #ddd',borderRadius:8,fontSize:13,color:'#888',cursor:'pointer'}}>↺ New Job</button>
