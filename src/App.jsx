@@ -306,7 +306,7 @@ function ZoomableBlueprint({ onTap, children }) {
 
   return (
     <div ref={containerRef}
-      style={{ overflow: 'hidden', background: '#111', maxHeight: '58vh', position: 'relative', cursor: 'crosshair' }}
+      style={{ overflow: 'auto', background: '#111', maxHeight: '58vh', position: 'relative', cursor: 'crosshair', WebkitOverflowScrolling: 'touch' }}
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
@@ -317,7 +317,9 @@ function ZoomableBlueprint({ onTap, children }) {
         transformOrigin: 'top left',
         transition: 'none',
         position: 'relative',
-        width: zoom > 1 ? `${zoom * 100}%` : '100%',
+        width: '100%',
+        imageRendering: 'high-quality',
+        WebkitImageRendering: 'high-quality',
       }}>
         {children}
       </div>
@@ -366,6 +368,7 @@ function CalibrateScreen({ image, jobName, onDone }) {
 
       {/* Zoomable blueprint - pinch to zoom, single tap to place points */}
       <ZoomableBlueprint onTap={handleTap}>
+        <div style={{position:'relative'}}>
           <img ref={imgRef} src={image.src} alt="Blueprint"
             style={{width:'100%',display:'block',userSelect:'none'}} draggable={false} />
           <svg style={{position:'absolute',inset:0,width:'100%',height:'100%',pointerEvents:'none'}}>
@@ -382,6 +385,7 @@ function CalibrateScreen({ image, jobName, onDone }) {
               </g>
             ))}
           </svg>
+        </div>
       </ZoomableBlueprint>
 
       <div style={{padding:'14px 16px'}}>
@@ -614,7 +618,7 @@ function ResultsScreen({ image, rooms, jobName, onReset, onEdit }) {
       const scale   = 2 // 2x for sharpness
       const imgW    = img.naturalWidth
       const imgH    = img.naturalHeight
-      const legendH = Math.max(rooms.length * 80 + 180, 300)
+      const legendH = Math.max(rooms.length * 100 + 260, 400)
       const canvas  = document.createElement('canvas')
       canvas.width  = imgW * scale
       canvas.height = (imgH + legendH) * scale
@@ -656,23 +660,23 @@ function ResultsScreen({ image, rooms, jobName, onReset, onEdit }) {
       // Legend area
       const ly = imgH + 10
       ctx.fillStyle = '#fff'
-      ctx.font = 'bold 28px Arial'
+      ctx.font = 'bold 48px Arial'
       ctx.textAlign = 'left'
       ctx.fillText(jobName || 'TopCoat Tech Blueprint', 20, ly + 36)
-      ctx.font = '20px Arial'
+      ctx.font = '36px Arial'
       ctx.fillStyle = '#aaa'
-      ctx.fillText(`Total: ${totalSqft.toLocaleString()} sq ft  |  ${totalPerim} ft perimeter`, 20, ly + 66)
+      ctx.fillText(`Total: ${totalSqft.toLocaleString()} sq ft  |  ${totalPerim} ft perimeter`, 20, ly + 80)
 
       rooms.forEach((room, i) => {
-        const ry = ly + 100 + i * 72
+        const ry = ly + 120 + i * 100
         ctx.fillStyle = room.color.border
-        ctx.fillRect(20, ry, 24, 24)
+        ctx.fillRect(20, ry, 36, 36)
         ctx.fillStyle = '#fff'
-        ctx.font = 'bold 20px Arial'
-        ctx.fillText(room.name, 54, ry + 20)
-        ctx.font = '17px Arial'
+        ctx.font = 'bold 32px Arial'
+        ctx.fillText(room.name, 68, ry + 28)
+        ctx.font = '26px Arial'
         ctx.fillStyle = '#ccc'
-        ctx.fillText(`${room.sqft.toLocaleString()} sq ft  |  ${room.perim} ft perimeter`, 54, ry + 46)
+        ctx.fillText(`${room.sqft.toLocaleString()} sq ft  |  ${room.perim} ft perimeter`, 68, ry + 64)
       })
 
       await saveToPhotos(canvas, jobName || 'TopCoat-Blueprint')
