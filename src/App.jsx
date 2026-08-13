@@ -280,9 +280,17 @@ function CalibrateScreen({ image, jobName, onDone }) {
         <div style={{color:'#aaa',fontSize:12}}>Tap both ends of a dimension line with a known length. Pinch to zoom if needed.</div>
       </div>
 
-      {/* Zoomable blueprint */}
-      <div style={{overflow:'auto',background:'#111',WebkitOverflowScrolling:'touch',touchAction:'pan-x pan-y',maxHeight:'55vh',position:'relative'}}
-        onTouchEnd={e=>{if(e.touches.length===0)handleTap(e.changedTouches?{...e,touches:e.changedTouches}:e)}}
+      {/* Zoomable blueprint - pinch to zoom, single tap to place points */}
+      <div style={{overflow:'auto',background:'#111',WebkitOverflowScrolling:'touch',touchAction:'pan-x pan-y pinch-zoom',maxHeight:'55vh',position:'relative'}}
+        onTouchEnd={e=>{
+          // Only place point on single-finger tap (not pinch)
+          if(e.changedTouches.length===1 && e.touches.length===0) {
+            const t = e.changedTouches[0]
+            const target = e.currentTarget.getBoundingClientRect()
+            // Check it was a tap not a scroll (moved less than 10px)
+            handleTap({clientX: t.clientX, clientY: t.clientY})
+          }
+        }}
         onClick={handleTap}>
         <div style={{minWidth:'200%',transformOrigin:'top left'}}>
           <img ref={imgRef} src={image.src} alt="Blueprint"
@@ -295,8 +303,9 @@ function CalibrateScreen({ image, jobName, onDone }) {
             )}
             {points.map((pt,i) => (
               <g key={i}>
-                <circle cx={`${pt.x*100}%`} cy={`${pt.y*100}%`} r="8" fill={i===0?'#e53935':'#1565c0'} stroke="#fff" strokeWidth="2"/>
-                <text x={`${pt.x*100}%`} y={`${pt.y*100}%`} dy="-12" textAnchor="middle" fill="#fff" fontSize="12" fontWeight="bold">{i===0?'A':'B'}</text>
+                <circle cx={`${pt.x*100}%`} cy={`${pt.y*100}%`} r="16" fill={i===0?'#e53935':'#1565c0'} stroke="#fff" strokeWidth="3" opacity="0.95"/>
+                <circle cx={`${pt.x*100}%`} cy={`${pt.y*100}%`} r="6" fill="#fff" opacity="0.9"/>
+                <text x={`${pt.x*100}%`} y={`${pt.y*100}%`} dy="-22" textAnchor="middle" fill="#fff" fontSize="14" fontWeight="bold" style={{filter:'drop-shadow(0 1px 3px rgba(0,0,0,0.9))'}}>{i===0?'A':'B'}</text>
               </g>
             ))}
           </svg>
@@ -427,8 +436,13 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
 
       {/* Zoomable pinch-to-zoom drawing area */}
       <div ref={containerRef}
-        style={{overflow:'auto',background:'#111',WebkitOverflowScrolling:'touch',maxHeight:'55vh',position:'relative',touchAction:'pan-x pan-y'}}
-        onTouchEnd={e=>{if(e.changedTouches.length===1&&!naming&&!identifying)handleTap(e)}}
+        style={{overflow:'auto',background:'#111',WebkitOverflowScrolling:'touch',maxHeight:'55vh',position:'relative',touchAction:'pan-x pan-y pinch-zoom'}}
+        onTouchEnd={e=>{
+          // Only place point on single-finger tap, ignore pinch gestures
+          if(e.changedTouches.length===1 && e.touches.length===0 && !naming && !identifying) {
+            handleTap(e)
+          }
+        }}
         onClick={e=>{if(!naming&&!identifying)handleTap(e)}}>
         <div style={{minWidth:'200%',position:'relative'}}>
           <img ref={imgRef} src={image.src} alt="Blueprint"
@@ -537,7 +551,7 @@ function ResultsScreen({ image, rooms, jobName, onReset, onEdit }) {
       const scale   = 2 // 2x for sharpness
       const imgW    = img.naturalWidth
       const imgH    = img.naturalHeight
-      const legendH = Math.max(rooms.length * 48 + 120, 200)
+      const legendH = Math.max(rooms.length * 80 + 180, 300)
       const canvas  = document.createElement('canvas')
       canvas.width  = imgW * scale
       canvas.height = (imgH + legendH) * scale
@@ -579,23 +593,23 @@ function ResultsScreen({ image, rooms, jobName, onReset, onEdit }) {
       // Legend area
       const ly = imgH + 10
       ctx.fillStyle = '#fff'
-      ctx.font = 'bold 18px Arial'
+      ctx.font = 'bold 28px Arial'
       ctx.textAlign = 'left'
-      ctx.fillText(jobName || 'TopCoat Tech Blueprint', 16, ly + 24)
-      ctx.font = '13px Arial'
+      ctx.fillText(jobName || 'TopCoat Tech Blueprint', 20, ly + 36)
+      ctx.font = '20px Arial'
       ctx.fillStyle = '#aaa'
-      ctx.fillText(`Total: ${totalSqft.toLocaleString()} sq ft · ${totalPerim} ft perimeter`, 16, ly + 44)
+      ctx.fillText(`Total: ${totalSqft.toLocaleString()} sq ft  |  ${totalPerim} ft perimeter`, 20, ly + 66)
 
       rooms.forEach((room, i) => {
-        const ry = ly + 70 + i * 44
+        const ry = ly + 100 + i * 72
         ctx.fillStyle = room.color.border
-        ctx.fillRect(16, ry, 16, 16)
+        ctx.fillRect(20, ry, 24, 24)
         ctx.fillStyle = '#fff'
-        ctx.font = 'bold 13px Arial'
-        ctx.fillText(room.name, 40, ry + 13)
-        ctx.font = '12px Arial'
+        ctx.font = 'bold 20px Arial'
+        ctx.fillText(room.name, 54, ry + 20)
+        ctx.font = '17px Arial'
         ctx.fillStyle = '#ccc'
-        ctx.fillText(`${room.sqft.toLocaleString()} sq ft · ${room.perim} ft perimeter`, 40, ry + 29)
+        ctx.fillText(`${room.sqft.toLocaleString()} sq ft  |  ${room.perim} ft perimeter`, 54, ry + 46)
       })
 
       await saveToPhotos(canvas, jobName || 'TopCoat-Blueprint')
