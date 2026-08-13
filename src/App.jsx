@@ -645,7 +645,7 @@ function ResultsScreen({ image, rooms, jobName, onReset, onEdit }) {
       const cappedImgW = Math.min(imgW, maxW)
       const cappedImgH = Math.round(cappedImgW * aspectRatio)
       const legendH = Math.round(cappedImgH * 0.45)
-      const rowH    = Math.round((legendH - 180) / Math.max(rooms.length, 1))
+      const rowH    = Math.round((legendH - 220) / Math.max(rooms.length, 1))
       const totalH  = cappedImgH + legendH
 
       const canvas  = document.createElement('canvas')
@@ -733,7 +733,7 @@ ctx.fillText(`${(room.sqft||0).toLocaleString()} sf`, c.x * cappedImgW, c.y * ca
       ctx.font = `${fSize * 0.8}px Arial`
       ctx.fillStyle = '#555'
       ctx.textAlign = 'center'
-      ctx.fillText('TopCoat Tech · Blueprint Analyzer', cappedImgW / 2, totalH - 12)
+      ctx.fillText('TopCoat Tech · Blueprint Analyzer', cappedImgW / 2, totalH - fSize * 0.8)
 
       await saveToPhotos(canvas, jobName || 'TopCoat-Blueprint')
       setSaved(true)
