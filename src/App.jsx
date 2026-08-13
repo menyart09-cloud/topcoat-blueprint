@@ -125,23 +125,24 @@ async function saveToPhotos(canvasEl, jobName) {
   return new Promise((resolve, reject) => {
     canvasEl.toBlob(async (blob) => {
       try {
-        // Try Web Share API first (best on mobile)
-        if (navigator.share && navigator.canShare && navigator.canShare({ files: [new File([blob], 'blueprint.jpg', { type: 'image/jpeg' })] })) {
-          await navigator.share({
-            title: `TopCoat - ${jobName}`,
-            files: [new File([blob], `${jobName.replace(/\s+/g,'-')}-blueprint.jpg`, { type: 'image/jpeg' })]
-          })
-          resolve('shared')
-          return
-        }
-        // Fallback: download
+        const filename = `${(jobName||'TopCoat').replace(/[^a-zA-Z0-9]/g,'-')}-blueprint.jpg`
         const url = URL.createObjectURL(blob)
+
+        // On iOS Safari: create a link and trigger it — user gets "Save to Photos" option
         const a = document.createElement('a')
         a.href = url
-        a.download = `${jobName.replace(/\s+/g,'-')}-blueprint.jpg`
+        a.download = filename
+        a.style.display = 'none'
+        document.body.appendChild(a)
         a.click()
-        URL.revokeObjectURL(url)
-        resolve('downloaded')
+        document.body.removeChild(a)
+
+        // Also show the image in a new tab as fallback (long-press → Save to Photos on iPhone)
+        setTimeout(() => {
+          URL.revokeObjectURL(url)
+        }, 10000)
+
+        resolve('saved')
       } catch (err) { reject(err) }
     }, 'image/jpeg', 0.95)
   })
@@ -753,7 +754,7 @@ function ResultsScreen({ image, rooms, jobName, onReset, onEdit }) {
       {/* Save button */}
       <button onClick={handleSave} disabled={saving}
         style={{width:'100%',padding:'15px',background:saved?'#2e7d32':saving?'#888':ORANGE,color:'#fff',border:'none',borderRadius:10,fontSize:15,fontWeight:700,cursor:saving?'not-allowed':'pointer',marginBottom:10}}>
-        {saved ? '✓ Saved!' : saving ? 'Saving…' : '📸 Save to Photos / Share'}
+        {saved ? '✓ Image downloaded — open it and Save to Photos' : saving ? 'Building image…' : '📸 Download & Save to Photos'}
       </button>
       <button onClick={onEdit} style={{width:'100%',padding:'12px',background:'transparent',color:ORANGE,border:`2px solid ${ORANGE}`,borderRadius:10,fontSize:14,fontWeight:700,cursor:'pointer',marginBottom:10}}>← Edit Rooms</button>
       <button onClick={onReset} style={{width:'100%',padding:'12px',background:'transparent',border:'1px solid #ddd',borderRadius:8,fontSize:13,color:'#888',cursor:'pointer'}}>↺ New Job</button>
