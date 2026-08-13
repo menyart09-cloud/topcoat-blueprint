@@ -274,7 +274,7 @@ function CalibrateScreen({ image, onDone }) {
         <div style={{background:'#fff',border:'1px solid #e8e8e8',borderRadius:10,padding:'14px',marginBottom:12}}>
           <div style={{fontWeight:600,fontSize:13,color:'#444',marginBottom:8}}>Distance between A and B</div>
           <div style={{display:'flex',alignItems:'center',gap:8}}>
-            <input type="text" placeholder="e.g. 28'2\" or 64" value={knownFt} onChange={e=>setKnownFt(e.target.value)}
+            <input type="text" placeholder="e.g. 28ft 2in or 64" value={knownFt} onChange={e=>setKnownFt(e.target.value)}
               style={{flex:1,padding:'10px 14px',fontSize:18,border:'2px solid #ddd',borderRadius:8,outline:'none'}} />
             <span style={{fontSize:15,color:'#666',fontWeight:500}}>feet</span>
           </div>
