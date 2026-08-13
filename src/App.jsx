@@ -638,9 +638,12 @@ function ResultsScreen({ image, rooms, jobName, onReset, onEdit }) {
       const scale   = isMobile ? 1 : 2
 
       // Legend sizing — each room gets a row
-      const rowH    = 80
-      const legendH = 120 + rooms.length * rowH + 40
-      const totalH  = imgH + legendH
+      const rowH    = 60
+      const legendH = 160 + rooms.length * rowH + 60
+      // Cap total height to avoid iOS canvas memory limits (max ~4096px tall)
+      const maxH = 3800
+      const cappedImgH = Math.min(imgH, maxH - legendH)
+      const totalH  = cappedImgH + legendH
 
       const canvas  = document.createElement('canvas')
       canvas.width  = imgW * scale
@@ -654,7 +657,7 @@ function ResultsScreen({ image, rooms, jobName, onReset, onEdit }) {
       ctx.fillRect(0, 0, imgW, totalH)
 
       // Blueprint
-      ctx.drawImage(img, 0, 0, imgW, imgH)
+      ctx.drawImage(img, 0, 0, imgW, cappedImgH)
 
       // Room polygons
       rooms.forEach(room => {
@@ -662,7 +665,7 @@ function ResultsScreen({ image, rooms, jobName, onReset, onEdit }) {
         ctx.beginPath()
         room.points.forEach((pt, i) => {
           const x = pt.x * imgW
-          const y = pt.y * imgH
+          const y = pt.y * cappedImgH
           i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y)
         })
         ctx.closePath()
@@ -675,16 +678,16 @@ function ResultsScreen({ image, rooms, jobName, onReset, onEdit }) {
         ctx.fillStyle = room.color?.border || '#e53935'
         ctx.font = 'bold 16px Arial'
         ctx.textAlign = 'center'
-        ctx.fillText(room.name || 'Room', c.x * imgW, c.y * imgH - 4)
+ctx.fillText(room.name || 'Room', c.x * imgW, c.y * cappedImgH - 4)
         ctx.font = '13px Arial'
         ctx.fillStyle = '#fff'
-        ctx.fillText(`${(room.sqft||0).toLocaleString()} sf`, c.x * imgW, c.y * imgH + 14)
+ctx.fillText(`${(room.sqft||0).toLocaleString()} sf`, c.x * imgW, c.y * cappedImgH + 14)
       })
 
       // ── Legend section ────────────────────────────────────────
-      const ly = imgH
+      const ly = cappedImgH
       const pad = 20
-      const fSize = Math.max(Math.round(imgW / 30), 18) // responsive font size
+      const fSize = Math.min(Math.max(Math.round(imgW / 40), 16), 32) // responsive font size, capped
 
       // Legend background already covered by fillRect above
       // Divider line
