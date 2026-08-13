@@ -251,7 +251,7 @@ function UploadScreen({ onFile, error, converting, jobName, setJobName }) {
 
 // ── ZoomableBlueprint ─────────────────────────────────────────
 // Handles pinch-to-zoom + pan on mobile, click/tap for point placement
-function ZoomableBlueprint({ onTap, children }) {
+function ZoomableBlueprint({ onTap, children, style }) {
   const containerRef = useRef()
   const lastTouchRef = useRef(null)
   const pinchRef     = useRef(null)
@@ -306,7 +306,7 @@ function ZoomableBlueprint({ onTap, children }) {
 
   return (
     <div ref={containerRef}
-      style={{ overflow: 'auto', background: '#111', maxHeight: '58vh', position: 'relative', cursor: 'crosshair', WebkitOverflowScrolling: 'touch' }}
+      style={{ overflow: 'auto', background: '#111', maxHeight: '58vh', position: 'relative', cursor: 'crosshair', WebkitOverflowScrolling: 'touch', ...style }}
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
@@ -335,9 +335,11 @@ function CalibrateScreen({ image, jobName, onDone }) {
 
   function handleTap(e) {
     if (points.length >= 2) { setPoints([]); return }
+    if (!imgRef.current) return
     const rect = imgRef.current.getBoundingClientRect()
-    const clientX = e.touches ? e.touches[0].clientX : e.clientX
-    const clientY = e.touches ? e.touches[0].clientY : e.clientY
+    const clientX = e.clientX ?? e.changedTouches?.[0]?.clientX ?? e.touches?.[0]?.clientX
+    const clientY = e.clientY ?? e.changedTouches?.[0]?.clientY ?? e.touches?.[0]?.clientY
+    if (clientX == null) return
     setPoints(p => [...p, {
       x: (clientX - rect.left) / rect.width,
       y: (clientY - rect.top)  / rect.height
@@ -360,14 +362,13 @@ function CalibrateScreen({ image, jobName, onDone }) {
 
   return (
     <div style={{ paddingBottom: 40 }}>
-      <div style={{background:'#1a2744',padding:'12px 16px'}}>
-        {jobName && <div style={{color:ORANGE,fontSize:12,fontWeight:700,marginBottom:2}}>{jobName}</div>}
-        <div style={{color:'#fff',fontWeight:700,fontSize:14,marginBottom:2}}>Step 1 — Set the Scale</div>
-        <div style={{color:'#aaa',fontSize:12}}>Tap both ends of a dimension line with a known length. Pinch to zoom if needed.</div>
+      <div style={{background:'#1a2744',padding:'7px 16px',display:'flex',alignItems:'center',gap:8}}>
+        {jobName && <span style={{color:ORANGE,fontSize:11,fontWeight:700,flexShrink:0}}>{jobName}</span>}
+        <span style={{color:'#fff',fontWeight:600,fontSize:12}}>Tap A then B on a known dimension line · Pinch to zoom</span>
       </div>
 
-      {/* Zoomable blueprint - pinch to zoom, single tap to place points */}
-      <ZoomableBlueprint onTap={handleTap}>
+      {/* Zoomable blueprint - max height */}
+      <ZoomableBlueprint onTap={handleTap} style={{maxHeight:'calc(100vh - 260px)'}}>
         <div style={{position:'relative'}}>
           <img ref={imgRef} src={image.src} alt="Blueprint"
             style={{width:'100%',display:'block',userSelect:'none'}} draggable={false} />
@@ -379,9 +380,9 @@ function CalibrateScreen({ image, jobName, onDone }) {
             )}
             {points.map((pt,i) => (
               <g key={i}>
-                <circle cx={`${pt.x*100}%`} cy={`${pt.y*100}%`} r="16" fill={i===0?'#e53935':'#1565c0'} stroke="#fff" strokeWidth="3" opacity="0.95"/>
-                <circle cx={`${pt.x*100}%`} cy={`${pt.y*100}%`} r="6" fill="#fff" opacity="0.9"/>
-                <text x={`${pt.x*100}%`} y={`${pt.y*100}%`} dy="-22" textAnchor="middle" fill="#fff" fontSize="14" fontWeight="bold" style={{filter:'drop-shadow(0 1px 3px rgba(0,0,0,0.9))'}}>{i===0?'A':'B'}</text>
+                <circle cx={`${pt.x*100}%`} cy={`${pt.y*100}%`} r="2%" fill={i===0?'#e53935':'#1565c0'} stroke="#fff" strokeWidth="0.5%" opacity="0.95"/>
+                <circle cx={`${pt.x*100}%`} cy={`${pt.y*100}%`} r="0.7%" fill="#fff" opacity="0.9"/>
+                <text x={`${pt.x*100}%`} y={`${pt.y*100}%`} dy="-3%" textAnchor="middle" fill="#fff" fontSize="2.5%" fontWeight="bold" style={{filter:'drop-shadow(0 1px 3px rgba(0,0,0,0.9))'}}>{i===0?'A':'B'}</text>
               </g>
             ))}
           </svg>
@@ -437,9 +438,12 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
   const color    = ROOM_COLORS[colorIdx]
 
   function getPoint(e) {
+    if (!imgRef.current) return null
     const rect = imgRef.current.getBoundingClientRect()
-    const clientX = e.changedTouches ? e.changedTouches[0].clientX : (e.touches ? e.touches[0].clientX : e.clientX)
-    const clientY = e.changedTouches ? e.changedTouches[0].clientY : (e.touches ? e.touches[0].clientY : e.clientY)
+    // Handle plain {clientX,clientY} from ZoomableBlueprint, or real events
+    const clientX = e.clientX ?? (e.changedTouches?.[0]?.clientX ?? e.touches?.[0]?.clientX)
+    const clientY = e.clientY ?? (e.changedTouches?.[0]?.clientY ?? e.touches?.[0]?.clientY)
+    if (clientX == null || clientY == null) return null
     return {
       x: (clientX - rect.left) / rect.width,
       y: (clientY - rect.top)  / rect.height
@@ -448,10 +452,10 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
 
   async function handleTap(e) {
     if (naming || identifying) return
-    // Ignore multi-touch (pinch zoom)
-    if (e.touches && e.touches.length > 1) return
-    e.preventDefault()
+    if (!imgRef.current) return
+    // ZoomableBlueprint passes plain {clientX, clientY} object
     const pt = getPoint(e)
+    if (!pt || pt.x < 0 || pt.x > 1 || pt.y < 0 || pt.y > 1) return
 
     if (points.length >= 3) {
       const first = points[0]
@@ -497,21 +501,15 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
 
   return (
     <div style={{ paddingBottom: 40 }}>
-      <div style={{background: identifying ? '#ff8f00' : color.solid, padding:'10px 16px', color:'#fff'}}>
-        {jobName && <div style={{fontSize:11,opacity:0.8,marginBottom:2}}>{jobName}</div>}
-        {identifying ? (
-          <div style={{fontWeight:700,fontSize:14}}>🤖 AI identifying room…</div>
-        ) : naming ? (
-          <div style={{fontWeight:700,fontSize:13}}>✓ {naming.sqft.toLocaleString()} sq ft · {naming.perim} ft perimeter · Name this room below</div>
-        ) : (
-          <div style={{fontWeight:700,fontSize:13}}>
-            {points.length===0 ? `Room ${rooms.length+1} — Tap corners to trace` : points.length>=3 ? `${points.length} pts — Tap near ⭕ to close, or keep tracing` : `${points.length} pts — Keep tapping corners`}
-          </div>
-        )}
+      <div style={{background: identifying ? '#ff8f00' : color.solid, padding:'7px 16px', color:'#fff', display:'flex', alignItems:'center', gap:8}}>
+        {jobName && <span style={{fontSize:11,opacity:0.8,flexShrink:0}}>{jobName} ·</span>}
+        <span style={{fontWeight:700,fontSize:12}}>
+          {identifying ? '🤖 AI identifying…' : naming ? `✓ ${naming.sqft.toLocaleString()} sf · ${naming.perim}ft — name it below` : points.length===0 ? `Room ${rooms.length+1} — tap corners to trace` : points.length>=3 ? `${points.length} pts · tap near ⭕ to close` : `${points.length} pts · keep tapping corners`}
+        </span>
       </div>
 
       {/* Zoomable pinch-to-zoom drawing area */}
-      <ZoomableBlueprint onTap={e=>{if(!naming&&!identifying)handleTap(e)}}>
+      <ZoomableBlueprint onTap={e=>{if(!naming&&!identifying)handleTap(e)}} style={{maxHeight:'calc(100vh - 200px)'}}>
         <div style={{position:'relative'}}>
           <img ref={imgRef} src={image.src} alt="Blueprint"
             style={{width:'100%',display:'block',userSelect:'none'}} draggable={false}
