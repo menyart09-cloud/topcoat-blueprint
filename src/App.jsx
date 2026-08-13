@@ -306,7 +306,7 @@ function ZoomableBlueprint({ onTap, children, style }) {
 
   return (
     <div ref={containerRef}
-      style={{ overflow: 'auto', background: '#111', maxHeight: '58vh', position: 'relative', cursor: 'crosshair', WebkitOverflowScrolling: 'touch', ...style }}
+      style={{ overflow: 'auto', background: '#111', maxHeight: '72vh', position: 'relative', cursor: 'crosshair', WebkitOverflowScrolling: 'touch', ...style }}
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
@@ -368,7 +368,7 @@ function CalibrateScreen({ image, jobName, onDone }) {
       </div>
 
       {/* Zoomable blueprint - max height */}
-      <ZoomableBlueprint onTap={handleTap} style={{maxHeight:'calc(100vh - 260px)'}}>
+      <ZoomableBlueprint onTap={handleTap} style={{maxHeight:'72vh'}}>
         <div style={{position:'relative'}}>
           <img ref={imgRef} src={image.src} alt="Blueprint"
             style={{width:'100%',display:'block',userSelect:'none'}} draggable={false} />
@@ -508,7 +508,7 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
       </div>
 
       {/* Zoomable pinch-to-zoom drawing area */}
-      <ZoomableBlueprint onTap={e=>{if(!naming&&!identifying)handleTap(e)}} style={{maxHeight:'70vh'}}>
+      <ZoomableBlueprint onTap={e=>{if(!naming&&!identifying)handleTap(e)}} style={{maxHeight:'72vh'}}>
         <div style={{position:'relative'}}>
           <img ref={imgRef} src={image.src} alt="Blueprint"
             style={{width:'100%',display:'block',userSelect:'none'}} draggable={false}
@@ -536,8 +536,8 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
               <polygon points={toSvgPoints(points, imgSize.w, imgSize.h)} fill={color.fill} stroke={color.border} strokeWidth="2.5"/>
             )}
             {!naming && points.map((pt,i) => (
-              <circle key={i} cx={`${pt.x*100}%`} cy={`${pt.y*100}%`} r={i===0?10:6}
-                fill={i===0?color.border:'#fff'} stroke={i===0?'#fff':color.border} strokeWidth="2" opacity="0.9"/>
+              <circle key={i} cx={`${pt.x*100}%`} cy={`${pt.y*100}%`} r="1%"
+                fill={i===0?color.border:'#fff'} stroke={i===0?'#fff':color.border} strokeWidth="0.3%" opacity="0.9"/>
             ))}
           </svg>
         </div>
