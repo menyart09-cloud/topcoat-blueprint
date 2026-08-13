@@ -638,9 +638,10 @@ function ResultsScreen({ image, rooms, jobName, onReset, onEdit }) {
       const scale   = isMobile ? 1 : 2
 
       // Legend sizing — each room gets a row
-      const rowH    = 60
-      const legendH = 160 + rooms.length * rowH + 60
-      // Cap total height to avoid iOS canvas memory limits (max ~4096px tall)
+      // Fixed large legend rows — readable when zoomed on phone
+      const rowH    = 120
+      const legendH = 280 + rooms.length * rowH + 80
+      // Cap total height to avoid iOS canvas memory limits
       const maxH = 3800
       const cappedImgH = Math.min(imgH, maxH - legendH)
       const totalH  = cappedImgH + legendH
@@ -687,7 +688,7 @@ ctx.fillText(`${(room.sqft||0).toLocaleString()} sf`, c.x * imgW, c.y * cappedIm
       // ── Legend section ────────────────────────────────────────
       const ly = cappedImgH
       const pad = 20
-      const fSize = Math.min(Math.max(Math.round(imgW / 40), 16), 32) // responsive font size, capped
+      const fSize = 48 // fixed large size — readable when saved image is zoomed in
 
       // Legend background already covered by fillRect above
       // Divider line
