@@ -187,6 +187,25 @@ function UploadScreen({ onFile, error, converting }) {
   )
 }
 
+// ── Parse feet+inches input ───────────────────────────────────
+// Accepts: "28'2"", "28-2", "28 2", "28.17", "28ft 2in", "28", etc.
+function parseFeetInches(str) {
+  if (!str) return null
+  str = str.trim()
+  // Try decimal feet first
+  const decimal = parseFloat(str)
+  // Check for feet+inches formats
+  const feetInches = str.match(/(\d+\.?\d*)\s*['ft\s\-]+\s*(\d+\.?\d*)["in]?/i)
+  const feetOnly   = str.match(/^(\d+\.?\d*)\s*['ft]?$/i)
+  if (feetInches) {
+    const ft = parseFloat(feetInches[1])
+    const inches = parseFloat(feetInches[2])
+    return ft + inches / 12
+  }
+  if (!isNaN(decimal) && decimal > 0) return decimal
+  return null
+}
+
 // ── Calibration Screen ────────────────────────────────────────
 function CalibrateScreen({ image, onDone }) {
   const [points, setPoints] = useState([])
@@ -205,15 +224,16 @@ function CalibrateScreen({ image, onDone }) {
   }
 
   function calcScale() {
-    if (points.length < 2 || !knownFt || isNaN(parseFloat(knownFt))) return null
+    if (points.length < 2 || !knownFt || !parseFeetInches(knownFt)) return null
     const dx = points[1].x - points[0].x
     const dy = points[1].y - points[0].y
-    return Math.sqrt(dx*dx + dy*dy) / parseFloat(knownFt)
+    return Math.sqrt(dx*dx + dy*dy) / parseFeetInches(knownFt)
   }
 
   const fracPerFt = calcScale()
   const scaleOk   = fracPerFt && fracPerFt > 0.001 && fracPerFt < 0.08
-  const canGo     = points.length === 2 && fracPerFt && scaleOk
+  const parsedFt   = parseFeetInches(knownFt)
+  const canGo     = points.length === 2 && fracPerFt && scaleOk && parsedFt
 
   return (
     <div style={{ padding:'0 0 40px' }}>
@@ -254,13 +274,13 @@ function CalibrateScreen({ image, onDone }) {
         <div style={{background:'#fff',border:'1px solid #e8e8e8',borderRadius:10,padding:'14px',marginBottom:12}}>
           <div style={{fontWeight:600,fontSize:13,color:'#444',marginBottom:8}}>Distance between A and B</div>
           <div style={{display:'flex',alignItems:'center',gap:8}}>
-            <input type="number" placeholder="e.g. 64" value={knownFt} onChange={e=>setKnownFt(e.target.value)}
+            <input type="text" placeholder="e.g. 28'2\" or 64" value={knownFt} onChange={e=>setKnownFt(e.target.value)}
               style={{flex:1,padding:'10px 14px',fontSize:18,border:'2px solid #ddd',borderRadius:8,outline:'none'}} />
             <span style={{fontSize:15,color:'#666',fontWeight:500}}>feet</span>
           </div>
           {fracPerFt && (
             <div style={{marginTop:8,fontSize:12,color:scaleOk?'#2e7d32':'#c62828',fontWeight:600}}>
-              {scaleOk ? `✓ Scale set — 1 ft = ${(fracPerFt*100).toFixed(2)}% of image width` : '⚠️ Scale looks off — try tapping a longer dimension line'}
+              {scaleOk ? `✓ Scale set — ${parsedFt?.toFixed(2)} ft = ${(fracPerFt*100).toFixed(2)}% of image width` : '⚠️ Scale looks off — try tapping a longer dimension line'}
             </div>
           )}
         </div>
