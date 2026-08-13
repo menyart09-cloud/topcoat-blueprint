@@ -306,7 +306,7 @@ function ZoomableBlueprint({ onTap, children, style }) {
 
   return (
     <div ref={containerRef}
-      style={{ overflow: 'auto', background: '#111', maxHeight: '72vh', position: 'relative', cursor: 'crosshair', WebkitOverflowScrolling: 'touch', ...style }}
+      style={{ overflow: 'auto', background: '#111', position: 'relative', cursor: 'crosshair', WebkitOverflowScrolling: 'touch', height: '100%', ...style }}
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
@@ -361,7 +361,7 @@ function CalibrateScreen({ image, jobName, onDone }) {
   const canGo     = points.length === 2 && scaleOk
 
   return (
-    <div style={{ paddingBottom: 40 }}>
+    <div style={{ display:'flex', flexDirection:'column', height:'calc(100vh - 60px)' }}>
       <div style={{background:'#1a2744',padding:'7px 16px',display:'flex',alignItems:'center',gap:8}}>
         {jobName && <span style={{color:ORANGE,fontSize:11,fontWeight:700,flexShrink:0}}>{jobName}</span>}
         <span style={{color:'#fff',fontWeight:600,fontSize:12}}>Tap A then B on a known dimension line · Pinch to zoom</span>
@@ -390,7 +390,7 @@ function CalibrateScreen({ image, jobName, onDone }) {
       </ZoomableBlueprint>
 
       {/* Compact controls strip */}
-      <div style={{padding:'10px 12px',background:'#f4f4f2',borderTop:'1px solid #e0e0e0'}}>
+      <div style={{padding:'10px 12px',background:'#f4f4f2',borderTop:'1px solid #e0e0e0',flexShrink:0}}>
         {/* Status row */}
         <div style={{display:'flex',gap:6,marginBottom:8}}>
           <div style={{flex:1,padding:'6px 8px',background:points.length>=1?'#e8f5e9':'#fff',border:`1px solid ${points.length>=1?'#a5d6a7':'#ddd'}`,borderRadius:6,textAlign:'center',fontSize:12,fontWeight:600,color:points.length>=1?'#2e7d32':'#999'}}>
@@ -499,16 +499,16 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
   }, [])
 
   return (
-    <div style={{ paddingBottom: 40 }}>
-      <div style={{background: identifying ? '#ff8f00' : color.solid, padding:'7px 16px', color:'#fff', display:'flex', alignItems:'center', gap:8}}>
+    <div style={{ display:'flex', flexDirection:'column', height:'calc(100vh - 60px)' }}>
+      <div style={{background: identifying ? '#ff8f00' : color.solid, padding:'7px 16px', color:'#fff', display:'flex', alignItems:'center', gap:8, flexShrink:0}}>
         {jobName && <span style={{fontSize:11,opacity:0.8,flexShrink:0}}>{jobName} ·</span>}
         <span style={{fontWeight:700,fontSize:12}}>
           {identifying ? '🤖 AI identifying…' : naming ? `✓ ${naming.sqft.toLocaleString()} sf · ${naming.perim}ft — name it below` : points.length===0 ? `Room ${rooms.length+1} — tap corners to trace` : points.length>=3 ? `${points.length} pts · tap near ⭕ to close` : `${points.length} pts · keep tapping corners`}
         </span>
       </div>
 
-      {/* Zoomable pinch-to-zoom drawing area */}
-      <ZoomableBlueprint onTap={e=>{if(!naming&&!identifying)handleTap(e)}} style={{maxHeight:'72vh'}}>
+      {/* Zoomable pinch-to-zoom drawing area - fills all available space */}
+      <ZoomableBlueprint onTap={e=>{if(!naming&&!identifying)handleTap(e)}} style={{flex:1,maxHeight:'none',minHeight:0}}>
         <div style={{position:'relative'}}>
           <img ref={imgRef} src={image.src} alt="Blueprint"
             style={{width:'100%',display:'block',userSelect:'none'}} draggable={false}
@@ -559,7 +559,7 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
 
       {/* Controls */}
       {!naming && (
-        <div style={{padding:'8px 12px'}}>
+        <div style={{padding:'8px 12px', flexShrink:0, background:'#f4f4f2'}}>
           <div style={{display:'flex',gap:6,marginBottom:6}}>
             {points.length>=3 && (
               <button onClick={closePolygon} style={{flex:2,padding:'9px',background:color.solid,color:'#fff',border:'none',borderRadius:7,fontSize:13,fontWeight:700,cursor:'pointer'}}>
@@ -680,7 +680,10 @@ function ResultsScreen({ image, rooms, jobName, onReset, onEdit }) {
       await saveToPhotos(canvas, jobName || 'TopCoat-Blueprint')
       setSaved(true)
     } catch (err) {
-      alert('Could not save: ' + err.message)
+      // Ignore user cancellation of share sheet
+      if (!err.message?.toLowerCase().includes('cancel') && !err.message?.toLowerCase().includes('abort')) {
+        alert('Could not save: ' + err.message)
+      }
     } finally { setSaving(false) }
   }
 
