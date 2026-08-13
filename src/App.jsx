@@ -122,41 +122,34 @@ Respond ONLY with JSON: {"name": "Room Name", "confidence": "high/medium/low"}`
 
 // ── Save blueprint image to photo album ───────────────────────
 async function saveToPhotos(canvasEl, jobName) {
-  // iOS Safari blocks canvas.toBlob() on large images — use toDataURL instead
-  const dataUrl = canvasEl.toDataURL('image/jpeg', 0.92)
   const filename = `${(jobName||'TopCoat').replace(/[^a-zA-Z0-9]/g,'-')}-blueprint.jpg`
 
-  // Try download link first (works on desktop, sometimes on iOS)
-  try {
-    const a = document.createElement('a')
-    a.href = dataUrl
-    a.download = filename
-    a.style.display = 'none'
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-  } catch(e) {}
+  // Build blob from canvas using toDataURL (more iOS-compatible than toBlob)
+  const dataUrl = canvasEl.toDataURL('image/jpeg', 0.92)
+  const arr = dataUrl.split(',')
+  const mime = arr[0].match(/:(.*?);/)[1]
+  const bstr = atob(arr[1])
+  const u8arr = new Uint8Array(bstr.length)
+  for (let i = 0; i < bstr.length; i++) u8arr[i] = bstr.charCodeAt(i)
+  const blob = new Blob([u8arr], { type: mime })
+  const file = new File([blob], filename, { type: mime })
 
-  // On iOS: open in new tab — user long-presses image to Save to Photos
-  setTimeout(() => {
-    const win = window.open('', '_blank')
-    if (win) {
-      win.document.write(`
-        <html><head><title>${filename}</title>
-        <meta name="viewport" content="width=device-width,initial-scale=1">
-        <style>body{margin:0;background:#111;display:flex;flex-direction:column;align-items:center;padding:16px}
-        img{max-width:100%;border-radius:8px}
-        p{color:#fff;font-family:sans-serif;font-size:14px;text-align:center;margin-top:12px}
-        </style></head>
-        <body>
-          <p>📸 <strong>Long-press the image below → "Save to Photos"</strong></p>
-          <img src="${dataUrl}" alt="Blueprint" />
-          <p style="color:#aaa;margin-top:8px">TopCoat Tech · ${jobName||'Blueprint'}</p>
-        </body></html>
-      `)
-      win.document.close()
-    }
-  }, 300)
+  // Web Share API with file — works on iOS Safari and shows native share sheet
+  // User picks "Save Image" to Photos
+  if (navigator.share) {
+    await navigator.share({ files: [file], title: jobName || 'TopCoat Blueprint' })
+    return
+  }
+
+  // Desktop fallback — trigger download
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  setTimeout(() => URL.revokeObjectURL(url), 5000)
 }
 
 // ── Header ────────────────────────────────────────────────────
@@ -631,7 +624,9 @@ function ResultsScreen({ image, rooms, jobName, onReset, onEdit }) {
 
       const imgW    = img.naturalWidth  || img.width  || 1200
       const imgH    = img.naturalHeight || img.height || 900
-      const scale   = 2
+      // Use scale 1 on mobile to avoid iOS memory limits on canvas
+      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
+      const scale   = isMobile ? 1 : 2
       const legendH = Math.max(rooms.length * 100 + 260, 400)
       const canvas  = document.createElement('canvas')
       canvas.width  = imgW * scale
@@ -694,22 +689,16 @@ function ResultsScreen({ image, rooms, jobName, onReset, onEdit }) {
         ctx.fillText(`${(room.sqft||0).toLocaleString()} sq ft  |  ${room.perim||0} ft perimeter`, 68, ry + 64)
       })
 
-      saveToPhotos(canvas, jobName || 'TopCoat-Blueprint')
+      await saveToPhotos(canvas, jobName || 'TopCoat-Blueprint')
       setSaved(true)
     } catch (err) {
       console.error('Save error:', err)
-      // Last resort — open image in new tab
-      try {
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.85)
-        const win = window.open('', '_blank')
-        if (win) {
-          win.document.write(`<html><body style="margin:0;background:#111"><p style="color:#fff;font-family:sans-serif;padding:16px;text-align:center">Long-press image → Save to Photos</p><img src="${dataUrl}" style="max-width:100%"></body></html>`)
-          win.document.close()
-          setSaved(true)
-        }
-      } catch(e2) {
-        alert('Could not save image. Try taking a screenshot instead.')
+      // User cancelled share sheet — not a real error
+      if (err.name === 'AbortError') {
+        setSaving(false)
+        return
       }
+      alert('Could not save: ' + (err.message || 'Unknown error'))
     } finally { setSaving(false) }
   }
 
@@ -779,7 +768,7 @@ function ResultsScreen({ image, rooms, jobName, onReset, onEdit }) {
       {/* Save button */}
       <button onClick={handleSave} disabled={saving}
         style={{width:'100%',padding:'15px',background:saved?'#2e7d32':saving?'#888':ORANGE,color:'#fff',border:'none',borderRadius:10,fontSize:15,fontWeight:700,cursor:saving?'not-allowed':'pointer',marginBottom:10}}>
-        {saved ? '✓ Saved — check new tab or Files app' : saving ? 'Building image…' : '📸 Save / Export Image'}
+        {saved ? '✓ Done — tap Save Image in share sheet' : saving ? 'Building image…' : '📸 Save Image'}
       </button>
       <button onClick={onEdit} style={{width:'100%',padding:'12px',background:'transparent',color:ORANGE,border:`2px solid ${ORANGE}`,borderRadius:10,fontSize:14,fontWeight:700,cursor:'pointer',marginBottom:10}}>← Edit Rooms</button>
       <button onClick={onReset} style={{width:'100%',padding:'12px',background:'transparent',border:'1px solid #ddd',borderRadius:8,fontSize:13,color:'#888',cursor:'pointer'}}>↺ New Job</button>
