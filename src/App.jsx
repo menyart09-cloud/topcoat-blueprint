@@ -148,18 +148,26 @@ async function saveToPhotos(canvasEl, jobName) {
 }
 
 // ── Header ────────────────────────────────────────────────────
-function Header() {
+function Header({ screen, onBack, onReset }) {
+  const showBack  = screen !== 'upload'
+  const showReset = screen !== 'upload'
   return (
-    <div style={{ background: DARK, padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 10, position: 'sticky', top: 0, zIndex: 100 }}>
-      <div style={{ width: 34, height: 34, background: ORANGE, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+    <div style={{ background: DARK, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 10, position: 'sticky', top: 0, zIndex: 100 }}>
+      {showBack && (
+        <button onClick={onBack} style={{ background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: 7, padding: '6px 10px', color: '#fff', fontSize: 18, cursor: 'pointer', flexShrink: 0, lineHeight: 1 }}>←</button>
+      )}
+      <div style={{ width: 32, height: 32, background: ORANGE, borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
           <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9M15 21V9"/>
         </svg>
       </div>
-      <div>
-        <div style={{ color: '#fff', fontWeight: 700, fontSize: 14, lineHeight: 1.2 }}>TopCoat Tech Blueprint Analyzer</div>
-        <div style={{ color: '#888', fontSize: 11 }}>Draw room overlays · AI calculates sq footage</div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ color: '#fff', fontWeight: 700, fontSize: 13, lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>TopCoat Tech Blueprint Analyzer</div>
+        <div style={{ color: '#888', fontSize: 10 }}>Draw room overlays · AI calculates sq footage</div>
       </div>
+      {showReset && (
+        <button onClick={onReset} style={{ background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: 7, padding: '6px 10px', color: '#fff', fontSize: 12, cursor: 'pointer', flexShrink: 0, fontWeight: 600 }}>↺ Reset</button>
+      )}
     </div>
   )
 }
@@ -241,6 +249,82 @@ function UploadScreen({ onFile, error, converting, jobName, setJobName }) {
   )
 }
 
+// ── ZoomableBlueprint ─────────────────────────────────────────
+// Handles pinch-to-zoom + pan on mobile, click/tap for point placement
+function ZoomableBlueprint({ onTap, children }) {
+  const containerRef = useRef()
+  const lastTouchRef = useRef(null)
+  const pinchRef     = useRef(null)
+  const [zoom, setZoom]     = useState(1)
+  const [pan,  setPan]      = useState({ x: 0, y: 0 })
+  const zoomRef = useRef(1)
+  const panRef  = useRef({ x: 0, y: 0 })
+
+  function onTouchStart(e) {
+    if (e.touches.length === 2) {
+      // Start pinch
+      pinchRef.current = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      )
+      lastTouchRef.current = null // cancel any pending tap
+    } else if (e.touches.length === 1) {
+      lastTouchRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, time: Date.now() }
+      pinchRef.current = null
+    }
+  }
+
+  function onTouchMove(e) {
+    if (e.touches.length === 2 && pinchRef.current !== null) {
+      e.preventDefault()
+      const newDist = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      )
+      const delta = newDist / pinchRef.current
+      const newZoom = Math.min(Math.max(zoomRef.current * delta, 1), 5)
+      zoomRef.current = newZoom
+      setZoom(newZoom)
+      pinchRef.current = newDist
+      lastTouchRef.current = null // cancel tap during pinch
+    }
+  }
+
+  function onTouchEnd(e) {
+    if (pinchRef.current !== null) { pinchRef.current = null; return }
+    if (!lastTouchRef.current) return
+    const t = e.changedTouches[0]
+    const dx = Math.abs(t.clientX - lastTouchRef.current.x)
+    const dy = Math.abs(t.clientY - lastTouchRef.current.y)
+    const dt = Date.now() - lastTouchRef.current.time
+    // Only fire tap if finger barely moved and was quick
+    if (dx < 12 && dy < 12 && dt < 400) {
+      onTap && onTap({ clientX: t.clientX, clientY: t.clientY })
+    }
+    lastTouchRef.current = null
+  }
+
+  return (
+    <div ref={containerRef}
+      style={{ overflow: 'hidden', background: '#111', maxHeight: '58vh', position: 'relative', cursor: 'crosshair' }}
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
+      onClick={e => { if (!('ontouchstart' in window)) onTap && onTap(e) }}
+    >
+      <div style={{
+        transform: `scale(${zoom})`,
+        transformOrigin: 'top left',
+        transition: 'none',
+        position: 'relative',
+        width: zoom > 1 ? `${zoom * 100}%` : '100%',
+      }}>
+        {children}
+      </div>
+    </div>
+  )
+}
+
 // ── Calibration Screen ────────────────────────────────────────
 function CalibrateScreen({ image, jobName, onDone }) {
   const [points, setPoints]   = useState([])
@@ -281,18 +365,7 @@ function CalibrateScreen({ image, jobName, onDone }) {
       </div>
 
       {/* Zoomable blueprint - pinch to zoom, single tap to place points */}
-      <div style={{overflow:'auto',background:'#111',WebkitOverflowScrolling:'touch',touchAction:'pan-x pan-y pinch-zoom',maxHeight:'55vh',position:'relative'}}
-        onTouchEnd={e=>{
-          // Only place point on single-finger tap (not pinch)
-          if(e.changedTouches.length===1 && e.touches.length===0) {
-            const t = e.changedTouches[0]
-            const target = e.currentTarget.getBoundingClientRect()
-            // Check it was a tap not a scroll (moved less than 10px)
-            handleTap({clientX: t.clientX, clientY: t.clientY})
-          }
-        }}
-        onClick={handleTap}>
-        <div style={{minWidth:'200%',transformOrigin:'top left'}}>
+      <ZoomableBlueprint onTap={handleTap}>
           <img ref={imgRef} src={image.src} alt="Blueprint"
             style={{width:'100%',display:'block',userSelect:'none'}} draggable={false} />
           <svg style={{position:'absolute',inset:0,width:'100%',height:'100%',pointerEvents:'none'}}>
@@ -309,8 +382,7 @@ function CalibrateScreen({ image, jobName, onDone }) {
               </g>
             ))}
           </svg>
-        </div>
-      </div>
+      </ZoomableBlueprint>
 
       <div style={{padding:'14px 16px'}}>
         <div style={{display:'flex',gap:8,marginBottom:12}}>
@@ -435,16 +507,7 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
       </div>
 
       {/* Zoomable pinch-to-zoom drawing area */}
-      <div ref={containerRef}
-        style={{overflow:'auto',background:'#111',WebkitOverflowScrolling:'touch',maxHeight:'55vh',position:'relative',touchAction:'pan-x pan-y pinch-zoom'}}
-        onTouchEnd={e=>{
-          // Only place point on single-finger tap, ignore pinch gestures
-          if(e.changedTouches.length===1 && e.touches.length===0 && !naming && !identifying) {
-            handleTap(e)
-          }
-        }}
-        onClick={e=>{if(!naming&&!identifying)handleTap(e)}}>
-        <div style={{minWidth:'200%',position:'relative'}}>
+      <ZoomableBlueprint onTap={e=>{if(!naming&&!identifying)handleTap(e)}}>
           <img ref={imgRef} src={image.src} alt="Blueprint"
             style={{width:'100%',display:'block',userSelect:'none'}} draggable={false}
             onLoad={()=>setImgSize({w:imgRef.current.clientWidth,h:imgRef.current.clientHeight})} />
@@ -476,7 +539,7 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
             ))}
           </svg>
         </div>
-      </div>
+      </ZoomableBlueprint>
 
       {/* Naming panel */}
       {naming && (
@@ -718,6 +781,12 @@ export default function App() {
     setScreen('draw')
   }
 
+  function handleBack() {
+    if (screen === 'calibrate') { setScreen('upload'); setImage(null) }
+    else if (screen === 'draw') setScreen('calibrate')
+    else if (screen === 'results') setScreen('draw')
+  }
+
   function reset() {
     setScreen('upload'); setImage(null); setFracPerFt(null); setRooms([]); setError(''); setConverting(false)
     // Keep job name so they can reuse it
@@ -726,7 +795,7 @@ export default function App() {
   return (
     <div style={{ minHeight:'100vh', background:'#f4f4f2' }}>
       <style>{`@keyframes spin{to{transform:rotate(360deg)}} .fade-in{animation:fadeIn 0.3s ease forwards} @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}`}</style>
-      <Header />
+      <Header screen={screen} onBack={handleBack} onReset={reset} />
       {screen==='upload'    && <UploadScreen    onFile={handleFile} error={error} converting={converting} jobName={jobName} setJobName={setJobName} />}
       {screen==='calibrate' && <CalibrateScreen image={image} jobName={jobName} onDone={handleCalibrateDone} />}
       {screen==='draw'      && <DrawScreen      image={image} fracPerFt={fracPerFt} aspectRatio={aspectRatio} rooms={rooms} jobName={jobName} onAddRoom={r=>setRooms(p=>[...p,r])} onUndo={()=>setRooms(p=>p.slice(0,-1))} onFinish={()=>setScreen('results')} />}
