@@ -380,45 +380,44 @@ function CalibrateScreen({ image, jobName, onDone }) {
             )}
             {points.map((pt,i) => (
               <g key={i}>
-                <circle cx={`${pt.x*100}%`} cy={`${pt.y*100}%`} r="2%" fill={i===0?'#e53935':'#1565c0'} stroke="#fff" strokeWidth="0.5%" opacity="0.95"/>
-                <circle cx={`${pt.x*100}%`} cy={`${pt.y*100}%`} r="0.7%" fill="#fff" opacity="0.9"/>
-                <text x={`${pt.x*100}%`} y={`${pt.y*100}%`} dy="-3%" textAnchor="middle" fill="#fff" fontSize="2.5%" fontWeight="bold" style={{filter:'drop-shadow(0 1px 3px rgba(0,0,0,0.9))'}}>{i===0?'A':'B'}</text>
+                <circle cx={`${pt.x*100}%`} cy={`${pt.y*100}%`} r="1%" fill={i===0?'#e53935':'#1565c0'} stroke="#fff" strokeWidth="0.3%" opacity="0.95"/>
+                <circle cx={`${pt.x*100}%`} cy={`${pt.y*100}%`} r="0.35%" fill="#fff" opacity="0.9"/>
+                <text x={`${pt.x*100}%`} y={`${pt.y*100}%`} dy="-1.5%" textAnchor="middle" fill="#fff" fontSize="1.5%" fontWeight="bold" style={{filter:'drop-shadow(0 1px 3px rgba(0,0,0,0.9))'}}>{i===0?'A':'B'}</text>
               </g>
             ))}
           </svg>
         </div>
       </ZoomableBlueprint>
 
-      <div style={{padding:'14px 16px'}}>
-        <div style={{display:'flex',gap:8,marginBottom:12}}>
-          <div style={{flex:1,padding:'10px',background:points.length>=1?'#e8f5e9':'#f5f5f5',border:`1px solid ${points.length>=1?'#a5d6a7':'#ddd'}`,borderRadius:8,textAlign:'center',fontSize:13,fontWeight:600,color:points.length>=1?'#2e7d32':'#999'}}>
-            {points.length>=1?'✓ Point A':'Tap Point A'}
+      {/* Compact controls strip */}
+      <div style={{padding:'10px 12px',background:'#f4f4f2',borderTop:'1px solid #e0e0e0'}}>
+        {/* Status row */}
+        <div style={{display:'flex',gap:6,marginBottom:8}}>
+          <div style={{flex:1,padding:'6px 8px',background:points.length>=1?'#e8f5e9':'#fff',border:`1px solid ${points.length>=1?'#a5d6a7':'#ddd'}`,borderRadius:6,textAlign:'center',fontSize:12,fontWeight:600,color:points.length>=1?'#2e7d32':'#999'}}>
+            {points.length>=1?'✓ A set':'Tap A'}
           </div>
-          <div style={{flex:1,padding:'10px',background:points.length>=2?'#e8f5e9':'#f5f5f5',border:`1px solid ${points.length>=2?'#a5d6a7':'#ddd'}`,borderRadius:8,textAlign:'center',fontSize:13,fontWeight:600,color:points.length>=2?'#2e7d32':'#999'}}>
-            {points.length>=2?'✓ Point B':'Tap Point B'}
+          <div style={{flex:1,padding:'6px 8px',background:points.length>=2?'#e8f5e9':'#fff',border:`1px solid ${points.length>=2?'#a5d6a7':'#ddd'}`,borderRadius:6,textAlign:'center',fontSize:12,fontWeight:600,color:points.length>=2?'#2e7d32':'#999'}}>
+            {points.length>=2?'✓ B set':'Tap B'}
           </div>
-        </div>
-
-        <div style={{background:'#fff',border:'1px solid #e8e8e8',borderRadius:10,padding:'12px',marginBottom:12}}>
-          <div style={{fontWeight:600,fontSize:13,color:'#444',marginBottom:8}}>Distance between A and B</div>
-          <div style={{display:'flex',alignItems:'center',gap:8}}>
-            <input type="text" placeholder="e.g. 28ft 2in or 64" value={knownFt}
-              onChange={e=>setKnownFt(e.target.value)}
-              style={{flex:1,padding:'10px 14px',fontSize:16,border:'2px solid #ddd',borderRadius:8,outline:'none'}} />
-            <span style={{fontSize:14,color:'#666',fontWeight:500}}>feet</span>
-          </div>
-          {fracPerFt && (
-            <div style={{marginTop:8,fontSize:12,color:scaleOk?'#2e7d32':'#c62828',fontWeight:600}}>
-              {scaleOk ? `✓ Scale set — ${parsedFt?.toFixed(2)} ft = ${(fracPerFt*100).toFixed(2)}% of image` : '⚠️ Scale seems off — try a longer dimension line'}
-            </div>
+          {points.length>0 && (
+            <button onClick={()=>setPoints([])} style={{padding:'6px 10px',background:'transparent',border:'1px solid #ddd',borderRadius:6,fontSize:12,color:'#888',cursor:'pointer',flexShrink:0}}>↺</button>
           )}
         </div>
-
-        {points.length>0 && <button onClick={()=>setPoints([])} style={{width:'100%',padding:'10px',background:'transparent',border:'1px solid #ddd',borderRadius:8,fontSize:13,color:'#888',cursor:'pointer',marginBottom:10}}>↺ Reset Points</button>}
-
+        {/* Distance input row */}
+        <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:8}}>
+          <input type="text" placeholder="Distance A→B (e.g. 28ft 2in)" value={knownFt}
+            onChange={e=>setKnownFt(e.target.value)}
+            style={{flex:1,padding:'8px 12px',fontSize:14,border:'2px solid #ddd',borderRadius:8,outline:'none'}} />
+          <span style={{fontSize:13,color:'#666',fontWeight:500,flexShrink:0}}>ft</span>
+        </div>
+        {fracPerFt && (
+          <div style={{fontSize:11,color:scaleOk?'#2e7d32':'#c62828',fontWeight:600,marginBottom:6}}>
+            {scaleOk ? `✓ Scale OK — ${parsedFt?.toFixed(1)} ft calibrated` : '⚠️ Scale off — use a longer line'}
+          </div>
+        )}
         <button onClick={()=>canGo&&onDone(fracPerFt, image.naturalWidth/image.naturalHeight || 1.4)} disabled={!canGo}
-          style={{width:'100%',padding:'15px',background:canGo?ORANGE:'#ccc',color:'#fff',border:'none',borderRadius:10,fontSize:15,fontWeight:700,cursor:canGo?'pointer':'not-allowed'}}>
-          Continue — Draw Room Overlays →
+          style={{width:'100%',padding:'11px',background:canGo?ORANGE:'#ccc',color:'#fff',border:'none',borderRadius:8,fontSize:14,fontWeight:700,cursor:canGo?'pointer':'not-allowed'}}>
+          Continue — Draw Overlays →
         </button>
       </div>
     </div>
@@ -509,7 +508,7 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
       </div>
 
       {/* Zoomable pinch-to-zoom drawing area */}
-      <ZoomableBlueprint onTap={e=>{if(!naming&&!identifying)handleTap(e)}} style={{maxHeight:'calc(100vh - 200px)'}}>
+      <ZoomableBlueprint onTap={e=>{if(!naming&&!identifying)handleTap(e)}} style={{maxHeight:'70vh'}}>
         <div style={{position:'relative'}}>
           <img ref={imgRef} src={image.src} alt="Blueprint"
             style={{width:'100%',display:'block',userSelect:'none'}} draggable={false}
@@ -560,28 +559,28 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
 
       {/* Controls */}
       {!naming && (
-        <div style={{padding:'12px 16px'}}>
-          <div style={{display:'flex',gap:8,marginBottom:8}}>
+        <div style={{padding:'8px 12px'}}>
+          <div style={{display:'flex',gap:6,marginBottom:6}}>
             {points.length>=3 && (
-              <button onClick={closePolygon} style={{flex:2,padding:'11px',background:color.solid,color:'#fff',border:'none',borderRadius:8,fontSize:13,fontWeight:700,cursor:'pointer'}}>
-                ⬡ Close & Identify Room
+              <button onClick={closePolygon} style={{flex:2,padding:'9px',background:color.solid,color:'#fff',border:'none',borderRadius:7,fontSize:13,fontWeight:700,cursor:'pointer'}}>
+                ⬡ Close Room
               </button>
             )}
             {points.length>0 && (
-              <button onClick={()=>setPoints(p=>p.slice(0,-1))} style={{flex:1,padding:'11px',background:'transparent',border:'1px solid #ddd',borderRadius:8,fontSize:13,color:'#888',cursor:'pointer'}}>↩ Undo</button>
+              <button onClick={()=>setPoints(p=>p.slice(0,-1))} style={{flex:1,padding:'9px',background:'transparent',border:'1px solid #ddd',borderRadius:7,fontSize:13,color:'#888',cursor:'pointer'}}>↩ Undo</button>
             )}
           </div>
           {rooms.length>0 && points.length===0 && (
             <>
-              <button onClick={onUndo} style={{width:'100%',padding:'10px',background:'transparent',border:'1px solid #ddd',borderRadius:8,fontSize:13,color:'#888',cursor:'pointer',marginBottom:8}}>✕ Remove Last Room</button>
-              <button onClick={onFinish} style={{width:'100%',padding:'14px',background:ORANGE,color:'#fff',border:'none',borderRadius:10,fontSize:15,fontWeight:700,cursor:'pointer'}}>
-                ✓ Done — View Results ({rooms.length} room{rooms.length!==1?'s':''})
+              <button onClick={onUndo} style={{width:'100%',padding:'8px',background:'transparent',border:'1px solid #ddd',borderRadius:7,fontSize:12,color:'#888',cursor:'pointer',marginBottom:6}}>✕ Remove Last Room</button>
+              <button onClick={onFinish} style={{width:'100%',padding:'12px',background:ORANGE,color:'#fff',border:'none',borderRadius:8,fontSize:15,fontWeight:700,cursor:'pointer'}}>
+                ✓ Done — {rooms.length} room{rooms.length!==1?'s':''}
               </button>
             </>
           )}
           {rooms.length===0 && points.length===0 && (
-            <div style={{background:'#fff3e0',border:'1px solid #ffcc80',borderRadius:8,padding:'12px',fontSize:13,color:'#bf360c',lineHeight:1.5}}>
-              💡 Pinch to zoom in, then tap each corner to trace a room. For L-shapes, keep tapping — any shape works!
+            <div style={{background:'#fff3e0',border:'1px solid #ffcc80',borderRadius:6,padding:'8px 12px',fontSize:12,color:'#bf360c'}}>
+              💡 Pinch to zoom · tap corners to trace · tap ⭕ to close
             </div>
           )}
         </div>
