@@ -639,33 +639,35 @@ function ResultsScreen({ image, rooms, jobName, onReset, onEdit }) {
 
       // Legend sizing — each room gets a row
       // Legend sized to ~35% of image height, rows fit within that
-      const legendH = Math.round(imgH * 0.45)
+      // Cap to iOS canvas limits while preserving aspect ratio
+      const maxW = 3800
+      const aspectRatio = imgH / imgW
+      const cappedImgW = Math.min(imgW, maxW)
+      const cappedImgH = Math.round(cappedImgW * aspectRatio)
+      const legendH = Math.round(cappedImgH * 0.45)
       const rowH    = Math.round((legendH - 180) / Math.max(rooms.length, 1))
-      // Cap total height to avoid iOS canvas memory limits
-      const maxH = 3800
-      const cappedImgH = Math.min(imgH, maxH - legendH)
       const totalH  = cappedImgH + legendH
 
       const canvas  = document.createElement('canvas')
-      canvas.width  = imgW * scale
+      canvas.width  = cappedImgW * scale
       canvas.height = totalH * scale
       const ctx = canvas.getContext('2d')
       if (!ctx) throw new Error('Canvas not supported')
       ctx.scale(scale, scale)
 
-      // Background — full canvas dark
+      // Background
       ctx.fillStyle = '#1c1c2e'
-      ctx.fillRect(0, 0, imgW, totalH)
+      ctx.fillRect(0, 0, cappedImgW, totalH)
 
-      // Blueprint
-      ctx.drawImage(img, 0, 0, imgW, cappedImgH)
+      // Blueprint — draw at correct aspect ratio
+      ctx.drawImage(img, 0, 0, cappedImgW, cappedImgH)
 
       // Room polygons
       rooms.forEach(room => {
         if (!room.points || room.points.length < 3) return
         ctx.beginPath()
         room.points.forEach((pt, i) => {
-          const x = pt.x * imgW
+          const x = pt.x * cappedImgW
           const y = pt.y * cappedImgH
           i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y)
         })
@@ -679,10 +681,10 @@ function ResultsScreen({ image, rooms, jobName, onReset, onEdit }) {
         ctx.fillStyle = room.color?.border || '#e53935'
         ctx.font = 'bold 16px Arial'
         ctx.textAlign = 'center'
-ctx.fillText(room.name || 'Room', c.x * imgW, c.y * cappedImgH - 4)
+ctx.fillText(room.name || 'Room', c.x * cappedImgW, c.y * cappedImgH - 4)
         ctx.font = '13px Arial'
         ctx.fillStyle = '#fff'
-ctx.fillText(`${(room.sqft||0).toLocaleString()} sf`, c.x * imgW, c.y * cappedImgH + 14)
+ctx.fillText(`${(room.sqft||0).toLocaleString()} sf`, c.x * cappedImgW, c.y * cappedImgH + 14)
       })
 
       // ── Legend section ────────────────────────────────────────
@@ -708,7 +710,7 @@ ctx.fillText(`${(room.sqft||0).toLocaleString()} sf`, c.x * imgW, c.y * cappedIm
 
       // Divider
       ctx.fillStyle = '#333'
-      ctx.fillRect(pad, ly + fSize * 3.8, imgW - pad*2, 1)
+      ctx.fillRect(pad, ly + fSize * 3.8, cappedImgW - pad*2, 1)
 
       // Room rows
       rooms.forEach((room, i) => {
@@ -731,7 +733,7 @@ ctx.fillText(`${(room.sqft||0).toLocaleString()} sf`, c.x * imgW, c.y * cappedIm
       ctx.font = `${fSize * 0.8}px Arial`
       ctx.fillStyle = '#555'
       ctx.textAlign = 'center'
-      ctx.fillText('TopCoat Tech · Blueprint Analyzer', imgW / 2, totalH - 12)
+      ctx.fillText('TopCoat Tech · Blueprint Analyzer', cappedImgW / 2, totalH - 12)
 
       await saveToPhotos(canvas, jobName || 'TopCoat-Blueprint')
       setSaved(true)
