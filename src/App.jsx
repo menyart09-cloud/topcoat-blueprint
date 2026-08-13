@@ -622,22 +622,36 @@ function ResultsScreen({ image, rooms, jobName, onReset, onEdit }) {
         i.src = `data:${image.mime};base64,${image.base64}`
       })
 
-      const imgW    = img.naturalWidth  || img.width  || 1200
-      const imgH    = img.naturalHeight || img.height || 900
+      // On mobile, naturalWidth can be 0 if image not fully decoded — use fallback
+      let imgW = img.naturalWidth || img.width || 0
+      let imgH = img.naturalHeight || img.height || 0
+      
+      // If dimensions still 0, decode the image first
+      if (imgW === 0 || imgH === 0) {
+        if (img.decode) await img.decode()
+        imgW = img.naturalWidth || img.width || 1200
+        imgH = img.naturalHeight || img.height || 900
+      }
+
       // Use scale 1 on mobile to avoid iOS memory limits on canvas
       const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
       const scale   = isMobile ? 1 : 2
-      const legendH = Math.max(rooms.length * 100 + 260, 400)
+
+      // Legend sizing — each room gets a row
+      const rowH    = 80
+      const legendH = 120 + rooms.length * rowH + 40
+      const totalH  = imgH + legendH
+
       const canvas  = document.createElement('canvas')
       canvas.width  = imgW * scale
-      canvas.height = (imgH + legendH) * scale
+      canvas.height = totalH * scale
       const ctx = canvas.getContext('2d')
       if (!ctx) throw new Error('Canvas not supported')
       ctx.scale(scale, scale)
 
-      // Background
+      // Background — full canvas dark
       ctx.fillStyle = '#1c1c2e'
-      ctx.fillRect(0, 0, imgW, imgH + legendH)
+      ctx.fillRect(0, 0, imgW, totalH)
 
       // Blueprint
       ctx.drawImage(img, 0, 0, imgW, imgH)
@@ -667,27 +681,53 @@ function ResultsScreen({ image, rooms, jobName, onReset, onEdit }) {
         ctx.fillText(`${(room.sqft||0).toLocaleString()} sf`, c.x * imgW, c.y * imgH + 14)
       })
 
-      // Legend
-      const ly = imgH + 10
-      ctx.textAlign = 'left'
-      ctx.fillStyle = '#fff'
-      ctx.font = 'bold 48px Arial'
-      ctx.fillText(jobName || 'TopCoat Tech Blueprint', 20, ly + 50)
-      ctx.font = '36px Arial'
-      ctx.fillStyle = '#aaa'
-      ctx.fillText(`Total: ${totalSqft.toLocaleString()} sq ft  |  ${totalPerim} ft perimeter`, 20, ly + 96)
+      // ── Legend section ────────────────────────────────────────
+      const ly = imgH
+      const pad = 20
+      const fSize = Math.max(Math.round(imgW / 30), 18) // responsive font size
 
+      // Legend background already covered by fillRect above
+      // Divider line
+      ctx.fillStyle = ORANGE
+      ctx.fillRect(0, ly, imgW, 4)
+
+      // Job name
+      ctx.textAlign = 'left'
+      ctx.fillStyle = '#ffffff'
+      ctx.font = `bold ${fSize * 1.6}px Arial`
+      ctx.fillText(jobName || 'TopCoat Tech Blueprint', pad, ly + fSize * 1.8)
+
+      // Totals
+      ctx.font = `${fSize * 1.1}px Arial`
+      ctx.fillStyle = '#e85d04'
+      ctx.fillText(`Total: ${totalSqft.toLocaleString()} sq ft  |  ${totalPerim} ft perimeter`, pad, ly + fSize * 3.2)
+
+      // Divider
+      ctx.fillStyle = '#333'
+      ctx.fillRect(pad, ly + fSize * 3.8, imgW - pad*2, 1)
+
+      // Room rows
       rooms.forEach((room, i) => {
-        const ry = ly + 130 + i * 100
+        const ry = ly + fSize * 4.4 + i * rowH
+        const swatchSize = fSize * 1.4
+        // Color swatch
         ctx.fillStyle = room.color?.border || '#e53935'
-        ctx.fillRect(20, ry, 36, 36)
-        ctx.fillStyle = '#fff'
-        ctx.font = 'bold 32px Arial'
-        ctx.fillText(room.name || 'Room', 68, ry + 28)
-        ctx.font = '26px Arial'
-        ctx.fillStyle = '#ccc'
-        ctx.fillText(`${(room.sqft||0).toLocaleString()} sq ft  |  ${room.perim||0} ft perimeter`, 68, ry + 64)
+        ctx.fillRect(pad, ry, swatchSize, swatchSize)
+        // Room name
+        ctx.fillStyle = '#ffffff'
+        ctx.font = `bold ${fSize * 1.1}px Arial`
+        ctx.fillText(room.name || 'Room', pad + swatchSize + 12, ry + swatchSize * 0.65)
+        // Room stats
+        ctx.font = `${fSize * 0.9}px Arial`
+        ctx.fillStyle = '#aaaaaa'
+        ctx.fillText(`${(room.sqft||0).toLocaleString()} sq ft  ·  ${room.perim||0} ft perimeter`, pad + swatchSize + 12, ry + swatchSize * 1.3)
       })
+
+      // TopCoat footer
+      ctx.font = `${fSize * 0.8}px Arial`
+      ctx.fillStyle = '#555'
+      ctx.textAlign = 'center'
+      ctx.fillText('TopCoat Tech · Blueprint Analyzer', imgW / 2, totalH - 12)
 
       await saveToPhotos(canvas, jobName || 'TopCoat-Blueprint')
       setSaved(true)
