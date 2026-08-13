@@ -638,9 +638,9 @@ function ResultsScreen({ image, rooms, jobName, onReset, onEdit }) {
       const scale   = isMobile ? 1 : 2
 
       // Legend sizing — each room gets a row
-      // Scale legend to image size so text is always readable
-      const rowH    = Math.round(imgW / 8)
-      const legendH = Math.round(imgW / 4) + rooms.length * rowH + Math.round(imgW / 10)
+      // Legend sized to ~35% of image height, rows fit within that
+      const legendH = Math.round(imgH * 0.45)
+      const rowH    = Math.round((legendH - 180) / Math.max(rooms.length, 1))
       // Cap total height to avoid iOS canvas memory limits
       const maxH = 3800
       const cappedImgH = Math.min(imgH, maxH - legendH)
@@ -688,7 +688,7 @@ ctx.fillText(`${(room.sqft||0).toLocaleString()} sf`, c.x * imgW, c.y * cappedIm
       // ── Legend section ────────────────────────────────────────
       const ly = cappedImgH
       const pad = 20
-      const fSize = Math.round(imgW / 15) // scales with image — big on large blueprints
+      const fSize = Math.round(legendH / (rooms.length * 3.5 + 5)) // fits text within legend area
 
       // Legend background already covered by fillRect above
       // Divider line
