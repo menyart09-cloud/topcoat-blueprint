@@ -512,6 +512,7 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
 
       {/* Zoomable pinch-to-zoom drawing area */}
       <ZoomableBlueprint onTap={e=>{if(!naming&&!identifying)handleTap(e)}}>
+        <div style={{position:'relative'}}>
           <img ref={imgRef} src={image.src} alt="Blueprint"
             style={{width:'100%',display:'block',userSelect:'none'}} draggable={false}
             onLoad={()=>setImgSize({w:imgRef.current.clientWidth,h:imgRef.current.clientHeight})} />
