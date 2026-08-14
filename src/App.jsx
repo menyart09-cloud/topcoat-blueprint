@@ -687,7 +687,21 @@ function ResultsScreen({ image, rooms, jobName, onReset, onEdit }) {
       const aspectRatio = imgH / imgW
       const cappedImgW = Math.min(imgW, maxW)
       const cappedImgH = Math.round(cappedImgW * aspectRatio)
-      const legendH = Math.round(cappedImgH * 0.90)
+      // Calculate exact legend height needed for all content
+      const F_est = Math.min(Math.max(Math.round(cappedImgW / 30), 16), 40)
+      const legendH = Math.round(
+        F_est * 1.4 +   // top padding
+        F_est * 1.6 +   // job name
+        F_est * 0.6 +
+        F_est * 1.2 +   // totals
+        F_est * 0.4 +
+        (totalPrice ? F_est * 1.4 + F_est * 1.3 + F_est * 0.4 : 0) + // price
+        F_est * 0.8 +   // divider
+        F_est * 0.6 +
+        rooms.length * F_est * 2.4 + // room rows
+        F_est * 1.2 +   // spacing
+        F_est * 1.5     // footer
+      )
       const rowH    = Math.round((legendH - 220) / Math.max(rooms.length, 1))
       const totalH  = cappedImgH + legendH
 
