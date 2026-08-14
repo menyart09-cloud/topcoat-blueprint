@@ -314,7 +314,7 @@ function ZoomableBlueprint({ onTap, children, style }) {
         e.touches[0].clientY - e.touches[1].clientY
       )
       const delta = newDist / pinchRef.current
-      const newZoom = Math.min(Math.max(zoomRef.current * delta, 1), 5)
+      const newZoom = Math.min(Math.max(zoomRef.current * delta, 1), 12)
       zoomRef.current = newZoom
       setZoom(newZoom)
       pinchRef.current = newDist
@@ -687,20 +687,16 @@ function ResultsScreen({ image, rooms, jobName, onReset, onEdit }) {
       const aspectRatio = imgH / imgW
       const cappedImgW = Math.min(imgW, maxW)
       const cappedImgH = Math.round(cappedImgW * aspectRatio)
-      // Calculate exact legend height needed for all content
+      // Calculate exact legend height — generous padding so nothing gets cut off
       const F_est = Math.min(Math.max(Math.round(cappedImgW / 30), 16), 40)
       const legendH = Math.round(
-        F_est * 1.4 +   // top padding
-        F_est * 1.6 +   // job name
-        F_est * 0.6 +
-        F_est * 1.2 +   // totals
-        F_est * 0.4 +
-        (totalPrice ? F_est * 1.4 + F_est * 1.3 + F_est * 0.4 : 0) + // price
-        F_est * 0.8 +   // divider
-        F_est * 0.6 +
-        rooms.length * F_est * 2.4 + // room rows
-        F_est * 1.2 +   // spacing
-        F_est * 1.5     // footer
+        F_est * 2.0 +                                                    // top pad
+        F_est * 2.0 +                                                    // job name
+        F_est * 2.0 +                                                    // totals
+        (totalPrice ? F_est * 2.5 : 0) +                                 // price line
+        F_est * 1.5 +                                                    // divider
+        rooms.length * F_est * 3.2 +                                     // room rows (generous)
+        F_est * 3.0                                                      // footer + bottom pad
       )
       const rowH    = Math.round((legendH - 220) / Math.max(rooms.length, 1))
       const totalH  = cappedImgH + legendH
@@ -747,7 +743,8 @@ ctx.fillText(`${(room.sqft||0).toLocaleString()} sf`, c.x * cappedImgW, c.y * ca
       // ── Legend section ────────────────────────────────────────
       const ly = cappedImgH
       const pad = 20
-      const fSize = Math.round(legendH / (rooms.length * 3.5 + 5)) // fits text within legend area
+      // Font size proportional to image width — readable on any size blueprint
+      const fSize = Math.min(Math.max(Math.round(cappedImgW / 28), 20), 60)
 
       // ── Legend with cursor-based exact positioning ──────────
       const F = fSize
