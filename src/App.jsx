@@ -157,10 +157,9 @@ Respond ONLY with a JSON array of strings — room names only, no numbers, no ex
 ["Lobby", "Office", "Kitchen", "Master Bedroom", "Garage"]`
 
   try {
-    // Call the API directly for room scanning — bypass identify mode
-    const res = await fetch('/api/rooms', {
+    const res = await fetch('/api/scan', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ base64, mime, prompt })
+      body: JSON.stringify({ base64, mime, customPrompt: prompt, mode: 'roomlist' })
     })
     if (!res.ok) return null
     const data = await res.json()
