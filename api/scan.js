@@ -1,92 +1,7 @@
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
-  const { base64, mime, customPrompt, mode } = req.body
-  if (!base64 || !mime) return res.status(400).json({ error: 'Missing image data' })
-  if (base64.length > 6_000_000) return res.status(413).json({ error: 'Image too large. Use a photo under 4MB.' })
-
-  if (mode === 'identify' && customPrompt) {
-    try {
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': process.env.ANTHROPIC_API_KEY,
-          'anthropic-version': '2023-06-01'
-        },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-6',
-          max_tokens: 500,
-          messages: [{ role: 'user', content: [
-            { type: 'image', source: { type: 'base64', media_type: mime, data: base64 } },
-            { type: 'text', text: customPrompt }
-          ]}]
-        })
-      })
-      const data = await response.json()
-      if (!response.ok) return res.status(200).json({ name: 'Room' })
-      
-      const raw = (data.content || []).map(b => b.text || '').join('').trim()
-      
-      // Check if response is a JSON array (room names scan)
-      const arrayMatch = raw.match(/\[[\s\S]*\]/)
-      if (arrayMatch) {
-        try {
-          const arr = JSON.parse(arrayMatch[0])
-          if (Array.isArray(arr)) return res.status(200).json(arr)
-        } catch(e) {}
-      }
-      
-      // Single room name identification
-      const jsonMatch = raw.match(/\{[\s\S]*\}/)
-      if (jsonMatch) {
-        try {
-          const parsed = JSON.parse(jsonMatch[0])
-          if (parsed.name) return res.status(200).json(parsed)
-        } catch(e) {}
-      }
-      
-      const nameMatch = raw.match(/"name"\s*:\s*"([^"]+)"/)
-      if (nameMatch) return res.status(200).json({ name: nameMatch[1] })
-      
-      const cleaned = raw.replace(/[{}"]/g, '').replace(/name\s*:/i, '').trim()
-      if (cleaned.length > 0 && cleaned.length < 60) return res.status(200).json({ name: cleaned })
-      
-      return res.status(200).json({ name: 'Room' })
-    } catch (err) {
-      return res.status(200).json({ name: 'Room' })
-    }
-  }
-
-  // Default: full blueprint scan
-  const prompt = `You are a professional blueprint measurement expert. Carefully examine this floor plan image.
-
-Your job: identify every room/space and read their EXACT dimensions from the printed labels on the blueprint.
-
-INSTRUCTIONS:
-1. Look for dimension labels printed inside or beside each room (e.g. "12'-6" x 14'-0"", "15.5 x 12", "10x12")
-2. Convert feet and inches precisely: 12'-6" = 12.5 ft, 9'-4" = 9.33 ft
-3. Calculate sqft = width x length using the printed dimensions
-4. If a room has NO printed dimension labels, mark measured: false and estimate from scale or proportions
-5. Read the scale notation if present anywhere on the blueprint
-6. List EVERY space: bedrooms, bathrooms, kitchen, living areas, hallways, closets, garage, utility, foyer, etc.
-
-Respond ONLY with valid JSON — no markdown, no backticks:
-
-{
-  "scale": "scale notation found or 'dimensions read from labels'",
-  "rooms": [
-    {
-      "id": 0,
-      "name": "Master Bedroom",
-      "width_ft": 14.5,
-      "length_ft": 16.0,
-      "sqft": 232,
-      "dimensions_label": "14'-6\\" x 16'-0\\"",
-      "measured": true
-    }
-  ],
-  "notes": "Any important observations about this blueprint for a flooring contractor."
-}`
+  const { base64, mime, prompt } = req.body
+  if (!base64 || !mime) return res.status(400).json({ error: 'Missing data' })
 
   try {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -98,20 +13,40 @@ Respond ONLY with valid JSON — no markdown, no backticks:
       },
       body: JSON.stringify({
         model: 'claude-sonnet-4-6',
-        max_tokens: 2000,
+        max_tokens: 500,
         messages: [{ role: 'user', content: [
           { type: 'image', source: { type: 'base64', media_type: mime, data: base64 } },
           { type: 'text', text: prompt }
         ]}]
       })
     })
+
     const data = await response.json()
-    if (!response.ok) return res.status(response.status).json({ error: data?.error?.message || 'AI API error' })
+    if (!response.ok) return res.status(200).json([])
+
     const raw = (data.content || []).map(b => b.text || '').join('').trim()
-    const match = raw.match(/\{[\s\S]*\}/)
-    if (!match) return res.status(500).json({ error: 'Unexpected AI response. Please try again.' })
-    return res.status(200).json(JSON.parse(match[0]))
+    
+    // Extract JSON array from response
+    const arrayMatch = raw.match(/\[[\s\S]*\]/)
+    if (arrayMatch) {
+      try {
+        const arr = JSON.parse(arrayMatch[0])
+        if (Array.isArray(arr)) {
+          // Clean up: remove empty strings and duplicates
+          const cleaned = [...new Set(arr.filter(n => typeof n === 'string' && n.trim().length > 0))]
+          return res.status(200).json(cleaned)
+        }
+      } catch(e) {}
+    }
+
+    // Fallback: try to parse line by line
+    const lines = raw.split('\n')
+      .map(l => l.replace(/^[-•*"\d.]+\s*/, '').replace(/[",]$/,'').trim())
+      .filter(l => l.length > 1 && l.length < 60)
+    if (lines.length > 0) return res.status(200).json([...new Set(lines)])
+
+    return res.status(200).json([])
   } catch (err) {
-    return res.status(500).json({ error: err.message || 'Server error.' })
+    return res.status(200).json([])
   }
 }
