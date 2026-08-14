@@ -22,10 +22,21 @@ const ROOM_COLORS = [
 function parseFeetInches(str) {
   if (!str) return null
   str = str.trim()
+  // Inches only: 144", 144in, 144 inches
+  const inchesOnly = str.match(/^(\d+\.?\d*)\s*(?:"|in|inch|inches)$/i)
+  if (inchesOnly) return parseFloat(inchesOnly[1]) / 12
+
+  // Feet and inches: 28ft 2in, 28'2", 28-2, 28 2
   const feetInches = str.match(/^(\d+\.?\d*)\s*(?:ft|feet|')?\s*[-\s]\s*(\d+\.?\d*)\s*(?:in|inches|")?$/i)
   if (feetInches) return parseFloat(feetInches[1]) + parseFloat(feetInches[2]) / 12
   const ftIn2 = str.match(/^(\d+\.?\d*)\s*(?:ft|feet|')\s*(\d+\.?\d*)\s*(?:in|inches|")?$/i)
   if (ftIn2) return parseFloat(ftIn2[1]) + parseFloat(ftIn2[2]) / 12
+
+  // Feet only with marker: 28ft, 28'
+  const feetOnly = str.match(/^(\d+\.?\d*)\s*(?:ft|feet|')$/i)
+  if (feetOnly) return parseFloat(feetOnly[1])
+
+  // Plain decimal or integer (assumes feet)
   const decimal = parseFloat(str)
   if (!isNaN(decimal) && decimal > 0) return decimal
   return null
@@ -385,8 +396,8 @@ function CalibrateScreen({ image, jobName, onDone }) {
             )}
             {points.map((pt,i) => (
               <g key={i}>
-                <circle cx={`${pt.x*100}%`} cy={`${pt.y*100}%`} r="1%" fill={i===0?'#e53935':'#1565c0'} stroke="#fff" strokeWidth="0.3%" opacity="0.95"/>
-                <circle cx={`${pt.x*100}%`} cy={`${pt.y*100}%`} r="0.35%" fill="#fff" opacity="0.9"/>
+                <circle cx={`${pt.x*100}%`} cy={`${pt.y*100}%`} r="0.6%" fill={i===0?'#e53935':'#1565c0'} stroke="#fff" strokeWidth="0.2%" opacity="0.95"/>
+                <circle cx={`${pt.x*100}%`} cy={`${pt.y*100}%`} r="0.2%" fill="#fff" opacity="0.9"/>
                 <text x={`${pt.x*100}%`} y={`${pt.y*100}%`} dy="-1.5%" textAnchor="middle" fill="#fff" fontSize="1.5%" fontWeight="bold" style={{filter:'drop-shadow(0 1px 3px rgba(0,0,0,0.9))'}}>{i===0?'A':'B'}</text>
               </g>
             ))}
@@ -410,7 +421,7 @@ function CalibrateScreen({ image, jobName, onDone }) {
         </div>
         {/* Distance input row */}
         <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:8}}>
-          <input type="text" placeholder="Distance A→B (e.g. 28ft 2in)" value={knownFt}
+          <input type="text" placeholder="e.g. 64ft, 28ft 2in, or 144in" value={knownFt}
             onChange={e=>setKnownFt(e.target.value)}
             style={{flex:1,padding:'8px 12px',fontSize:14,border:'2px solid #ddd',borderRadius:8,outline:'none'}} />
           <span style={{fontSize:13,color:'#666',fontWeight:500,flexShrink:0}}>ft</span>
@@ -541,8 +552,8 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
               <polygon points={toSvgPoints(points, imgSize.w, imgSize.h)} fill={color.fill} stroke={color.border} strokeWidth="2.5"/>
             )}
             {!naming && points.map((pt,i) => (
-              <circle key={i} cx={`${pt.x*100}%`} cy={`${pt.y*100}%`} r="1%"
-                fill={i===0?color.border:'#fff'} stroke={i===0?'#fff':color.border} strokeWidth="0.3%" opacity="0.9"/>
+              <circle key={i} cx={`${pt.x*100}%`} cy={`${pt.y*100}%`} r="0.6%"
+                fill={i===0?color.border:'#fff'} stroke={i===0?'#fff':color.border} strokeWidth="0.2%" opacity="0.9"/>
             ))}
           </svg>
         </div>
@@ -598,8 +609,12 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
 function ResultsScreen({ image, rooms, jobName, onReset, onEdit }) {
   const totalSqft  = Math.round(rooms.reduce((s,r)=>s+(r.sqft||0),0))
   const totalPerim = Math.round(rooms.reduce((s,r)=>s+(r.perim||0),0))
-  const [saving, setSaving] = useState(false)
-  const [saved,  setSaved]  = useState(false)
+  const [saving,       setSaving]       = useState(false)
+  const [saved,        setSaved]        = useState(false)
+  const [pricePerSqft, setPricePerSqft] = useState('')
+  const totalPrice = pricePerSqft && !isNaN(parseFloat(pricePerSqft))
+    ? (totalSqft * parseFloat(pricePerSqft)).toFixed(2)
+    : null
   const blueprintRef = useRef()
   const [imgSize, setImgSize] = useState({ w: 300, h: 400 })
 
@@ -706,7 +721,8 @@ ctx.fillText(`${(room.sqft||0).toLocaleString()} sf`, c.x * cappedImgW, c.y * ca
       // Totals
       ctx.font = `${fSize * 1.1}px Arial`
       ctx.fillStyle = '#e85d04'
-      ctx.fillText(`Total: ${totalSqft.toLocaleString()} sq ft  |  ${totalPerim} ft perimeter`, pad, ly + fSize * 3.2)
+      const priceLine = totalPrice ? `  |  $${parseFloat(totalPrice).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})} @ $${parseFloat(pricePerSqft).toFixed(2)}/sf` : ''
+      ctx.fillText(`Total: ${totalSqft.toLocaleString()} sq ft  |  ${totalPerim} ft perimeter${priceLine}`, pad, ly + fSize * 3.2)
 
       // Divider
       ctx.fillStyle = '#333'
@@ -805,6 +821,37 @@ ctx.fillText(`${(room.sqft||0).toLocaleString()} sf`, c.x * cappedImgW, c.y * ca
           </div>
           <div style={{color:ORANGE,fontSize:28,fontWeight:800,lineHeight:1}}>{totalSqft.toLocaleString()} <span style={{fontSize:13,color:'#aaa',fontWeight:400}}>sq ft</span></div>
         </div>
+      </div>
+
+      {/* Pricing calculator */}
+      <div style={{background:'#fff',border:'1px solid #e8e8e8',borderRadius:12,padding:'14px 16px',marginBottom:14}}>
+        <div style={{fontWeight:700,fontSize:14,color:'#222',marginBottom:10}}>💰 Job Pricing</div>
+        <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:10}}>
+          <span style={{fontSize:13,color:'#666',flexShrink:0}}>Price per sq ft</span>
+          <div style={{display:'flex',alignItems:'center',flex:1,border:'2px solid #ddd',borderRadius:8,overflow:'hidden'}}>
+            <span style={{padding:'8px 10px',background:'#f5f5f5',color:'#666',fontSize:15,borderRight:'1px solid #ddd'}}>$</span>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              placeholder="0.00"
+              value={pricePerSqft}
+              onChange={e=>setPricePerSqft(e.target.value)}
+              style={{flex:1,padding:'8px 12px',fontSize:16,border:'none',outline:'none'}}
+            />
+          </div>
+        </div>
+        {totalPrice && (
+          <div style={{background:DARK,borderRadius:10,padding:'14px 16px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+            <div>
+              <div style={{color:'#aaa',fontSize:12}}>Estimated job total</div>
+              <div style={{color:'#666',fontSize:11,marginTop:1}}>{totalSqft.toLocaleString()} sq ft × ${parseFloat(pricePerSqft).toFixed(2)}/sf</div>
+            </div>
+            <div style={{color:'#4caf50',fontSize:28,fontWeight:800,lineHeight:1}}>
+              ${parseFloat(totalPrice).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}
+            </div>
+          </div>
+        )}
       </div>
 
       <div style={{background:'#fff8e1',border:'1px solid #ffe082',borderRadius:8,padding:'10px 14px',fontSize:12,color:'#5d4037',marginBottom:16,lineHeight:1.5}}>
