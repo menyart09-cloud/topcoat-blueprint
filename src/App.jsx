@@ -117,10 +117,26 @@ async function pdfToImage(file) {
 
 // ── AI room identifier ────────────────────────────────────────
 async function identifyRoom(base64, mime, polygon) {
+  const c = polygon.reduce((a,p)=>({x:a.x+p.x/polygon.length,y:a.y+p.y/polygon.length}),{x:0,y:0})
   const pts = polygon.map(p => `(${(p.x*100).toFixed(1)}%, ${(p.y*100).toFixed(1)}%)`).join(', ')
-  const prompt = `This is a blueprint floor plan. A polygon has been drawn over one room at these image positions: ${pts}.
-What room is inside or nearest to the center of this polygon? Look at room labels, text, or symbols.
-Respond ONLY with JSON: {"name": "Room Name", "confidence": "high/medium/low"}`
+  const prompt = `You are analyzing a blueprint floor plan image.
+
+A room has been traced with a polygon at these image coordinates (as % of image width/height):
+Polygon points: ${pts}
+Polygon center: (${(c.x*100).toFixed(1)}%, ${(c.y*100).toFixed(1)}%)
+
+Your task: identify what room or space is at the CENTER of this polygon.
+
+Instructions:
+1. Look carefully at the text labels printed INSIDE or very near the center point
+2. Common room labels include: Bedroom, Master Bedroom, Living Room, Kitchen, Bathroom, Garage, Dining Room, Office, Laundry, Utility, Foyer, Entry, Hall, Closet, Pantry, Bath, Porch, Court, Family Room
+3. Read the exact text as written on the blueprint — preserve the capitalization
+4. If you see a number (like "Bedroom 2"), include it
+5. If no label is visible inside the polygon, look at nearby text
+
+Respond ONLY with this JSON (no markdown, no explanation):
+{"name": "Exact Room Name From Blueprint"}`
+
   try {
     const res = await fetch('/api/scan', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -170,9 +186,9 @@ function Header({ screen, onBack, onReset }) {
   return (
     <div style={{ background: DARK, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 10, position: 'sticky', top: 0, zIndex: 100 }}>
       {showBack && (
-        <button onClick={onBack} style={{ background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: 7, padding: '6px 10px', color: '#fff', fontSize: 18, cursor: 'pointer', flexShrink: 0, lineHeight: 1 }}>←</button>
+        <button onClick={onBack} style={{ background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: 6, padding: '5px 8px', color: '#fff', fontSize: 16, cursor: 'pointer', flexShrink: 0, lineHeight: 1 }}>←</button>
       )}
-      <div style={{ width: 32, height: 32, background: ORANGE, borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+      <div style={{ width: 28, height: 28, background: ORANGE, borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
           <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9M15 21V9"/>
         </svg>
@@ -182,7 +198,7 @@ function Header({ screen, onBack, onReset }) {
         <div style={{ color: '#888', fontSize: 10 }}>Draw room overlays · AI calculates sq footage</div>
       </div>
       {showReset && (
-        <button onClick={onReset} style={{ background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: 7, padding: '6px 10px', color: '#fff', fontSize: 12, cursor: 'pointer', flexShrink: 0, fontWeight: 600 }}>↺ Reset</button>
+        <button onClick={onReset} style={{ background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: 6, padding: '5px 8px', color: '#fff', fontSize: 11, cursor: 'pointer', flexShrink: 0, fontWeight: 600 }}>↺</button>
       )}
     </div>
   )
