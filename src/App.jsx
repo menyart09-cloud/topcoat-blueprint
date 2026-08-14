@@ -157,21 +157,38 @@ Respond ONLY with a JSON array of strings — room names only, no numbers, no ex
 ["Lobby", "Office", "Kitchen", "Master Bedroom", "Garage"]`
 
   try {
+    // Compress image to smaller size before sending — room names are large text, readable at lower res
+    const smallBase64 = await compressImage(base64, mime, 0.5)
     const res = await fetch('/api/scan', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ base64, mime, customPrompt: prompt, mode: 'roomlist' })
+      body: JSON.stringify({ base64: smallBase64, mime: 'image/jpeg', customPrompt: prompt, mode: 'roomlist' })
     })
     const data = await res.json()
-    console.log('Room scan response:', JSON.stringify(data).slice(0,200))
     if (!res.ok) return null
     if (Array.isArray(data)) return data
-    // Handle case where API wraps array in object
-    if (data && typeof data === 'object') {
-      const vals = Object.values(data)
-      if (vals.length === 1 && Array.isArray(vals[0])) return vals[0]
-    }
     return null
   } catch { return null }
+}
+
+// Compress image to reduce file size for API calls
+async function compressImage(base64, mime, quality = 0.5) {
+  return new Promise(resolve => {
+    const img = new Image()
+    img.onload = () => {
+      const canvas = document.createElement('canvas')
+      // Scale down to max 1200px wide
+      const maxW = 1200
+      const scale = Math.min(1, maxW / img.width)
+      canvas.width  = Math.round(img.width  * scale)
+      canvas.height = Math.round(img.height * scale)
+      const ctx = canvas.getContext('2d')
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+      const compressed = canvas.toDataURL('image/jpeg', quality)
+      resolve(compressed.split(',')[1])
+    }
+    img.onerror = () => resolve(base64)
+    img.src = `data:${mime};base64,${base64}`
+  })
 }
 
 // ── Save blueprint image to photo album ───────────────────────
