@@ -556,20 +556,20 @@ function CalibrateScreen({ image, jobName, onDone }) {
             {points.map((pt,i) => {
               const w = imgRef.current?.clientWidth || 400
               const h = imgRef.current?.clientHeight || 300
-              // Target ~16px arm / ~2.8px stroke on screen (readable on phones)
-              const armX = (16 / zoomLevel / w) * 100
-              const armY = (16 / zoomLevel / h) * 100
-              const sw   = (2.8 / zoomLevel / w) * 100
-              const col  = i===0 ? '#e53935' : '#1565c0'
-              const cx = pt.x*100, cy = pt.y*100
+              // Absolute pixel coords — same system as the image
+              const arm = 18 / zoomLevel
+              const sw  = 2.8 / zoomLevel
+              const col = i===0 ? '#e53935' : '#1565c0'
+              const cx  = pt.x * w
+              const cy  = pt.y * h
               return (
                 <g key={i}>
-                  <line x1={`${cx-armX}%`} y1={`${cy}%`} x2={`${cx+armX}%`} y2={`${cy}%`} stroke="#fff" strokeWidth={`${sw*2.5}%`}/>
-                  <line x1={`${cx}%`} y1={`${cy-armY}%`} x2={`${cx}%`} y2={`${cy+armY}%`} stroke="#fff" strokeWidth={`${sw*2.5}%`}/>
-                  <line x1={`${cx-armX}%`} y1={`${cy}%`} x2={`${cx+armX}%`} y2={`${cy}%`} stroke={col} strokeWidth={`${sw}%`}/>
-                  <line x1={`${cx}%`} y1={`${cy-armY}%`} x2={`${cx}%`} y2={`${cy+armY}%`} stroke={col} strokeWidth={`${sw}%`}/>
-                  <text x={`${cx}%`} y={`${cy}%`} dy={`${-armY*1.8}%`} textAnchor="middle" fill={col}
-                    fontSize={Math.max(12/zoomLevel, 8)} fontWeight="bold"
+                  <line x1={cx-arm} y1={cy} x2={cx+arm} y2={cy} stroke="#fff" strokeWidth={sw*2.5}/>
+                  <line x1={cx} y1={cy-arm} x2={cx} y2={cy+arm} stroke="#fff" strokeWidth={sw*2.5}/>
+                  <line x1={cx-arm} y1={cy} x2={cx+arm} y2={cy} stroke={col} strokeWidth={sw}/>
+                  <line x1={cx} y1={cy-arm} x2={cx} y2={cy+arm} stroke={col} strokeWidth={sw}/>
+                  <text x={cx} y={cy} dy={-arm*1.6} textAnchor="middle" fill={col}
+                    fontSize={Math.max(13/zoomLevel, 9)} fontWeight="bold"
                     style={{filter:'drop-shadow(0 1px 2px rgba(255,255,255,0.9))'}}>{i===0?'A':'B'}</text>
                 </g>
               )
@@ -764,26 +764,23 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
             {!naming && points.map((pt,i) => {
               const w = imgSize.w > 0 ? imgSize.w : 400
               const h = imgSize.h > 0 ? imgSize.h : 300
-              // Longer arms (~18px) + small center so the crosshair is obvious
-              const armX = (18 / zoomLevel / w) * 100
-              const armY = (18 / zoomLevel / h) * 100
-              const sw   = (2.8 / zoomLevel / w) * 100
-              const col  = color.border
-              const cx = pt.x*100, cy = pt.y*100
+              // Very obvious crosshairs (long arms)
+              const arm = 22 / zoomLevel
+              const sw  = 3.2 / zoomLevel
+              const col = color.border
+              const cx  = pt.x * w
+              const cy  = pt.y * h
               const isFirst = i === 0
               return (
                 <g key={i}>
-                  {/* white outline */}
-                  <line x1={`${cx-armX}%`} y1={`${cy}%`} x2={`${cx+armX}%`} y2={`${cy}%`} stroke="#fff" strokeWidth={`${sw*2.8}%`}/>
-                  <line x1={`${cx}%`} y1={`${cy-armY}%`} x2={`${cx}%`} y2={`${cy+armY}%`} stroke="#fff" strokeWidth={`${sw*2.8}%`}/>
-                  {/* colored cross */}
-                  <line x1={`${cx-armX}%`} y1={`${cy}%`} x2={`${cx+armX}%`} y2={`${cy}%`} stroke={col} strokeWidth={`${sw}%`}/>
-                  <line x1={`${cx}%`} y1={`${cy-armY}%`} x2={`${cx}%`} y2={`${cy+armY}%`} stroke={col} strokeWidth={`${sw}%`}/>
-                  {/* small center dot */}
-                  <circle cx={`${cx}%`} cy={`${cy}%`} r={`${Math.max(2.2/zoomLevel/w*100, 0.25)}%`} fill={col} stroke="#fff" strokeWidth={`${sw*0.5}%`}/>
+                  <line x1={cx-arm} y1={cy} x2={cx+arm} y2={cy} stroke="#fff" strokeWidth={sw*3}/>
+                  <line x1={cx} y1={cy-arm} x2={cx} y2={cy+arm} stroke="#fff" strokeWidth={sw*3}/>
+                  <line x1={cx-arm} y1={cy} x2={cx+arm} y2={cy} stroke={col} strokeWidth={sw}/>
+                  <line x1={cx} y1={cy-arm} x2={cx} y2={cy+arm} stroke={col} strokeWidth={sw}/>
+                  <circle cx={cx} cy={cy} r={Math.max(2.8/zoomLevel, 1.5)} fill={col} stroke="#fff" strokeWidth={sw*0.6}/>
                   {isFirst && (
-                    <circle cx={`${cx}%`} cy={`${cy}%`} r={`${armX*1.35}%`} fill="none" stroke={col}
-                      strokeWidth={`${sw*0.6}%`} strokeDasharray={`${armX*0.9}%,${armX*0.45}%`}/>
+                    <circle cx={cx} cy={cy} r={arm*1.5} fill="none" stroke={col}
+                      strokeWidth={sw*0.8} strokeDasharray={`${arm},${arm*0.5}`}/>
                   )}
                 </g>
               )
