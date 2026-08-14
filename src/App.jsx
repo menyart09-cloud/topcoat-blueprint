@@ -414,18 +414,18 @@ function CalibrateScreen({ image, jobName, onDone }) {
               <line x1={`${points[0].x*100}%`} y1={`${points[0].y*100}%`}
                     x2={`${points[1].x*100}%`} y2={`${points[1].y*100}%`}
                     stroke="#fff" strokeWidth={imgRef.current?`${2/imgRef.current.clientWidth*100}%`:`${0.15/zoomLevel}%`}
-                    strokeDasharray={imgRef.current?`${6/imgRef.current.clientWidth*100}%,${3/imgRef.current.clientWidth*100}%`:"6,3"} opacity="0.9"/>
+                    strokeDasharray={imgRef.current?`${6/imgRef.current.clientWidth*100}%,${3/imgRef.current.clientWidth*100}%`:"6,3"} opacity="1"/>
             )}
             {points.map((pt,i) => {
               const w = imgRef.current?.clientWidth || 400
-              const dr  = `${Math.max(6/zoomLevel,1.5)/w*100}%`
+              const dr  = `${Math.max(8/zoomLevel,2)/w*100}%`
               const dr2 = `${Math.max(3/zoomLevel,1)/w*100}%`
               const dfs = `${Math.max(10/zoomLevel,3)/w*100}%`
               const ddy = `${-Math.max(10/zoomLevel,3)/w*100}%`
               return (
                 <g key={i}>
-                  <circle cx={`${pt.x*100}%`} cy={`${pt.y*100}%`} r={dr} fill={i===0?'#e53935':'#1565c0'} stroke="#fff" strokeWidth={dr2} opacity="0.95"/>
-                  <circle cx={`${pt.x*100}%`} cy={`${pt.y*100}%`} r={`${Math.max(3/zoomLevel,1)/w*100}%`} fill="#fff" opacity="0.9"/>
+                  <circle cx={`${pt.x*100}%`} cy={`${pt.y*100}%`} r={dr} fill={i===0?'#e53935':'#1565c0'} stroke="#fff" strokeWidth={dr2} opacity="1"/>
+                  <circle cx={`${pt.x*100}%`} cy={`${pt.y*100}%`} r={`${Math.max(3/zoomLevel,1)/w*100}%`} fill="#fff" opacity="1"/>
                   <text x={`${pt.x*100}%`} y={`${pt.y*100}%`} dy={ddy} textAnchor="middle" fill="#fff" fontSize={dfs} fontWeight="bold" style={{filter:'drop-shadow(0 1px 3px rgba(0,0,0,0.9))'}}>{i===0?'A':'B'}</text>
                 </g>
               )
@@ -581,12 +581,12 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
             {!naming && points.map((pt,i) => {
               // Use viewport-relative sizing: 8px equivalent
               // SVG width = imgSize.w pixels, so 8px = 8/imgSize.w * 100%
-              const pxSize = Math.max(5 / zoomLevel, 1.5)
+              const pxSize = Math.max(4 / zoomLevel, 1.2)
               const dr  = imgSize.w > 0 ? `${pxSize / imgSize.w * 100}%` : `${0.6/zoomLevel}%`
               const dsw = imgSize.w > 0 ? `${2 / imgSize.w * 100}%` : `${0.2/zoomLevel}%`
               return (
                 <circle key={i} cx={`${pt.x*100}%`} cy={`${pt.y*100}%`} r={dr}
-                  fill={i===0?color.border:'#fff'} stroke={i===0?'#fff':color.border} strokeWidth={dsw} opacity="0.9"/>
+                  fill={i===0?color.border:'#fff'} stroke={i===0?'#fff':color.border} strokeWidth={dsw} opacity="1"/>
               )
             })}
           </svg>
