@@ -161,9 +161,15 @@ Respond ONLY with a JSON array of strings — room names only, no numbers, no ex
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ base64, mime, customPrompt: prompt, mode: 'roomlist' })
     })
-    if (!res.ok) return null
     const data = await res.json()
+    console.log('Room scan response:', JSON.stringify(data).slice(0,200))
+    if (!res.ok) return null
     if (Array.isArray(data)) return data
+    // Handle case where API wraps array in object
+    if (data && typeof data === 'object') {
+      const vals = Object.values(data)
+      if (vals.length === 1 && Array.isArray(vals[0])) return vals[0]
+    }
     return null
   } catch { return null }
 }
