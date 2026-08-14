@@ -326,15 +326,17 @@ function UploadScreen({ onFile, error, converting, jobName, setJobName }) {
 }
 
 // ── ZoomableBlueprint ─────────────────────────────────────────
-// Handles pinch-to-zoom + pan on mobile, click/tap for point placement
+// Handles pinch-to-zoom + pan on mobile, Ctrl+wheel zoom + drag-pan on desktop
 function ZoomableBlueprint({ onTap, children, style, onZoomChange }) {
   const containerRef = useRef()
   const lastTouchRef = useRef(null)
   const pinchRef     = useRef(null)
-  const [zoom, setZoom]     = useState(1)
-  const [pan,  setPan]      = useState({ x: 0, y: 0 })
+  const [zoom, setZoom] = useState(1)
   const zoomRef = useRef(1)
-  const panRef  = useRef({ x: 0, y: 0 })
+
+  // Desktop drag-to-pan state
+  const isDragging = useRef(false)
+  const lastMouse  = useRef({ x: 0, y: 0 })
 
   function onTouchStart(e) {
     if (e.touches.length === 2) {
@@ -395,14 +397,16 @@ function ZoomableBlueprint({ onTap, children, style, onZoomChange }) {
     lastTouchRef.current = null
   }
 
-  // Desktop: Ctrl+scroll or just scroll to zoom, then pan by scrolling normally
+  // Desktop: Ctrl+wheel (or trackpad pinch) = zoom toward cursor
+  // Regular wheel / trackpad scroll = pan (browser default)
   useEffect(() => {
     const container = containerRef.current
     if (!container) return
+
     function onWheel(e) {
-      // Only intercept if Ctrl held OR it looks like a trackpad pinch (ctrlKey set by browser)
-      // Regular scroll (no ctrl) = pan = let browser handle naturally
-      if (!e.ctrlKey && Math.abs(e.deltaY) < 50 && e.deltaMode === 0) return
+      // Only zoom when Ctrl is held (trackpad pinch also sets ctrlKey)
+      if (!e.ctrlKey) return          // ← let browser handle normal scroll = pan
+
       e.preventDefault()
       const rect = container.getBoundingClientRect()
       const mouseX = e.clientX - rect.left + container.scrollLeft
@@ -418,17 +422,62 @@ function ZoomableBlueprint({ onTap, children, style, onZoomChange }) {
       setZoom(newZoom)
       onZoomChange && onZoomChange(newZoom)
     }
+
     container.addEventListener('wheel', onWheel, { passive: false })
     return () => container.removeEventListener('wheel', onWheel)
   }, [])
 
+  // Desktop drag-to-pan (left mouse button)
+  const dragMoved = useRef(false)
+
+  function onMouseDown(e) {
+    // Only left button, and only when zoomed (otherwise normal click = tap)
+    if (e.button !== 0 || zoomRef.current <= 1.01) return
+    isDragging.current = true
+    dragMoved.current = false
+    lastMouse.current = { x: e.clientX, y: e.clientY }
+    e.preventDefault()
+  }
+
+  function onMouseMove(e) {
+    if (!isDragging.current) return
+    const container = containerRef.current
+    if (!container) return
+    const dx = e.clientX - lastMouse.current.x
+    const dy = e.clientY - lastMouse.current.y
+    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) dragMoved.current = true
+    container.scrollLeft -= dx
+    container.scrollTop  -= dy
+    lastMouse.current = { x: e.clientX, y: e.clientY }
+  }
+
+  function onMouseUp() {
+    isDragging.current = false
+  }
+
   return (
     <div ref={containerRef}
-      style={{ overflow: 'auto', background: '#111', position: 'relative', cursor: 'crosshair', WebkitOverflowScrolling: 'touch', height: '100%', ...style }}
+      style={{
+        overflow: 'auto',
+        background: '#111',
+        position: 'relative',
+        cursor: zoom > 1.01 ? 'grab' : 'crosshair',
+        WebkitOverflowScrolling: 'touch',
+        height: '100%',
+        ...style
+      }}
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
-      onClick={e => { if (!('ontouchstart' in window)) onTap && onTap(e) }}
+      onMouseDown={onMouseDown}
+      onMouseMove={onMouseMove}
+      onMouseUp={onMouseUp}
+      onMouseLeave={onMouseUp}
+      onClick={e => {
+        // Ignore click if we just finished a real drag
+        if (dragMoved.current) { dragMoved.current = false; return }
+        if (!('ontouchstart' in window)) onTap && onTap(e)
+      }}
     >
       {/* Outer div expands to hold scaled content so container can scroll */}
       <div style={{ width: `${zoom * 100}%`, height: `${zoom * 100}%`, minHeight: '100%' }}>
