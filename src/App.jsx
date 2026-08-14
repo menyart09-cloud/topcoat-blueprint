@@ -731,7 +731,7 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
                   <line x1={`${cx}%`} y1={`${cy-armY2}%`} x2={`${cx}%`} y2={`${cy+armY2}%`} stroke="#fff" strokeWidth={`${sw2*2.5}%`}/>
                   <line x1={`${cx-armX2}%`} y1={`${cy}%`} x2={`${cx+armX2}%`} y2={`${cy}%`} stroke={col} strokeWidth={`${sw2}%`}/>
                   <line x1={`${cx}%`} y1={`${cy-armY2}%`} x2={`${cx}%`} y2={`${cy+armY2}%`} stroke={col} strokeWidth={`${sw2}%`}/>
-                  <circle cx={`${cx}%`} cy={`${cy}%`} r={`${0.2/zoomLevel}%`} fill={col} stroke="#fff" strokeWidth={`${swPct*0.5}%`}/>
+                  <circle cx={`${cx}%`} cy={`${cy}%`} r={`${0.2/zoomLevel}%`} fill={col} stroke="#fff" strokeWidth={`${sw2*0.5}%`}/>
                   {isFirst && <circle cx={`${cx}%`} cy={`${cy}%`} r={`${armX2*1.2}%`} fill="none" stroke={col} strokeWidth={`${sw2*0.7}%`} strokeDasharray={`${armX2}%,${armX2*0.5}%`}/>}
                 </g>
               )
