@@ -721,8 +721,12 @@ ctx.fillText(`${(room.sqft||0).toLocaleString()} sf`, c.x * cappedImgW, c.y * ca
       // Totals
       ctx.font = `${fSize * 1.1}px Arial`
       ctx.fillStyle = '#e85d04'
-      const priceLine = totalPrice ? `  |  $${parseFloat(totalPrice).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})} @ $${parseFloat(pricePerSqft).toFixed(2)}/sf` : ''
-      ctx.fillText(`Total: ${totalSqft.toLocaleString()} sq ft  |  ${totalPerim} ft perimeter${priceLine}`, pad, ly + fSize * 3.2)
+      ctx.fillText(`Total: ${totalSqft.toLocaleString()} sq ft  |  ${totalPerim} ft perimeter`, pad, ly + fSize * 3.2)
+      if (totalPrice) {
+        ctx.font = `bold ${fSize * 1.3}px Arial`
+        ctx.fillStyle = '#4caf50'
+        ctx.fillText(`Job Total: $${parseFloat(totalPrice).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}  ($${parseFloat(pricePerSqft).toFixed(2)}/sf)`, pad, ly + fSize * 5.0)
+      }
 
       // Divider
       ctx.fillStyle = '#333'
@@ -730,7 +734,7 @@ ctx.fillText(`${(room.sqft||0).toLocaleString()} sf`, c.x * cappedImgW, c.y * ca
 
       // Room rows
       rooms.forEach((room, i) => {
-        const ry = ly + fSize * 4.4 + i * rowH
+        const ry = ly + fSize * 6.2 + i * rowH
         const swatchSize = fSize * 1.4
         // Color swatch
         ctx.fillStyle = room.color?.border || '#e53935'
