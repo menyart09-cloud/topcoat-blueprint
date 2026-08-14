@@ -407,15 +407,23 @@ function CalibrateScreen({ image, jobName, onDone }) {
 
   function calcScale() {
     if (points.length < 2) return null
-    const ft = parseFeetInches(knownFt)
-    if (!ft) return null
+    let ft = 0
+    if (knownFt.includes('|')) {
+      const [fPart, iPart] = knownFt.split('|')
+      ft = (parseFloat(fPart)||0) + (parseFloat(iPart)||0) / 12
+    } else {
+      ft = parseFeetInches(knownFt) || 0
+    }
+    if (!ft || ft <= 0) return null
     const dx = points[1].x - points[0].x
     const dy = points[1].y - points[0].y
     return Math.sqrt(dx*dx + dy*dy) / ft
   }
 
   const fracPerFt = calcScale()
-  const parsedFt  = parseFeetInches(knownFt)
+  const parsedFt = knownFt.includes('|')
+    ? (parseFloat(knownFt.split('|')[0])||0) + (parseFloat(knownFt.split('|')[1])||0)/12
+    : parseFeetInches(knownFt)
   const scaleOk   = fracPerFt && fracPerFt > 0.001 && fracPerFt < 0.08
   const canGo     = points.length === 2 && scaleOk
 
@@ -435,11 +443,21 @@ function CalibrateScreen({ image, jobName, onDone }) {
 {/* dots only, no line */}
             {points.map((pt,i) => {
               const w = imgRef.current?.clientWidth || 400
-              // Small solid dot — no ring, no label
-              const dr = `${Math.max(5/zoomLevel,1.5)/w*100}%`
+              // Crosshair marker — precise and small
+              const arm = Math.max(8/zoomLevel,2)/w*100  // arm length in %
+              const sw  = Math.max(1.5/zoomLevel,0.5)/w*100  // stroke width in %
+              const col = i===0 ? '#e53935' : '#1565c0'
+              const cx = pt.x*100, cy = pt.y*100
               return (
-                <circle key={i} cx={`${pt.x*100}%`} cy={`${pt.y*100}%`} r={dr}
-                  fill={i===0?'#e53935':'#1565c0'} stroke="#fff" strokeWidth={`${Math.max(1.5/zoomLevel,0.5)/w*100}%`} opacity="1"/>
+                <g key={i}>
+                  <line x1={`${cx-arm}%`} y1={`${cy}%`} x2={`${cx+arm}%`} y2={`${cy}%`} stroke="#fff" strokeWidth={`${sw*2}%`}/>
+                  <line x1={`${cx}%`} y1={`${cy-arm}%`} x2={`${cx}%`} y2={`${cy+arm}%`} stroke="#fff" strokeWidth={`${sw*2}%`}/>
+                  <line x1={`${cx-arm}%`} y1={`${cy}%`} x2={`${cx+arm}%`} y2={`${cy}%`} stroke={col} strokeWidth={`${sw}%`}/>
+                  <line x1={`${cx}%`} y1={`${cy-arm}%`} x2={`${cx}%`} y2={`${cy+arm}%`} stroke={col} strokeWidth={`${sw}%`}/>
+                  <text x={`${cx}%`} y={`${cy}%`} dy={`${-arm*1.5}%`} textAnchor="middle" fill={col}
+                    fontSize={`${Math.max(10/zoomLevel,3)/w*100}%`} fontWeight="bold"
+                    style={{filter:'drop-shadow(0 1px 2px rgba(255,255,255,0.9))'}}>{i===0?'A':'B'}</text>
+                </g>
               )
             })}
           </svg>
@@ -460,12 +478,16 @@ function CalibrateScreen({ image, jobName, onDone }) {
             <button onClick={()=>setPoints([])} style={{padding:'6px 10px',background:'transparent',border:'1px solid #ddd',borderRadius:6,fontSize:12,color:'#888',cursor:'pointer',flexShrink:0}}>↺</button>
           )}
         </div>
-        {/* Distance input row */}
-        <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:8}}>
-          <input type="text" inputMode="decimal" placeholder="e.g. 64 or 28.17 or 144in" value={knownFt}
-            onChange={e=>setKnownFt(e.target.value)}
-            style={{flex:1,padding:'8px 12px',fontSize:14,border:'2px solid #ddd',borderRadius:8,outline:'none'}} />
-          <span style={{fontSize:13,color:'#666',fontWeight:500,flexShrink:0}}>ft</span>
+        {/* Distance input — separate ft and in fields for mobile keypad */}
+        <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:8}}>
+          <input type="number" inputMode="numeric" placeholder="Ft" value={knownFt.split('|')[0]||''} min="0"
+            onChange={e=>setKnownFt(e.target.value+'|'+(knownFt.split('|')[1]||'0'))}
+            style={{flex:2,padding:'8px 6px',fontSize:18,border:'2px solid #ddd',borderRadius:8,outline:'none',textAlign:'center'}} />
+          <span style={{fontSize:14,color:'#666',fontWeight:700,flexShrink:0}}>ft</span>
+          <input type="number" inputMode="numeric" placeholder="In" value={knownFt.split('|')[1]==='0'?'':(knownFt.split('|')[1]||'')} min="0" max="11"
+            onChange={e=>setKnownFt((knownFt.split('|')[0]||'0')+'|'+(e.target.value||'0'))}
+            style={{flex:1,padding:'8px 6px',fontSize:18,border:'2px solid #ddd',borderRadius:8,outline:'none',textAlign:'center'}} />
+          <span style={{fontSize:14,color:'#666',fontWeight:700,flexShrink:0}}>in</span>
         </div>
         {fracPerFt && (
           <div style={{fontSize:11,color:scaleOk?'#2e7d32':'#c62828',fontWeight:600,marginBottom:6}}>
