@@ -395,11 +395,14 @@ function ZoomableBlueprint({ onTap, children, style, onZoomChange }) {
     lastTouchRef.current = null
   }
 
-  // Attach wheel with passive:false so we can preventDefault
+  // Desktop: Ctrl+scroll or just scroll to zoom, then pan by scrolling normally
   useEffect(() => {
     const container = containerRef.current
     if (!container) return
     function onWheel(e) {
+      // Only intercept if Ctrl held OR it looks like a trackpad pinch (ctrlKey set by browser)
+      // Regular scroll (no ctrl) = pan = let browser handle naturally
+      if (!e.ctrlKey && Math.abs(e.deltaY) < 50 && e.deltaMode === 0) return
       e.preventDefault()
       const rect = container.getBoundingClientRect()
       const mouseX = e.clientX - rect.left + container.scrollLeft
