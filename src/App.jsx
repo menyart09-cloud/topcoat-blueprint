@@ -389,12 +389,35 @@ function ZoomableBlueprint({ onTap, children, style, onZoomChange }) {
     const dx = Math.abs(t.clientX - lastTouchRef.current.x)
     const dy = Math.abs(t.clientY - lastTouchRef.current.y)
     const dt = Date.now() - lastTouchRef.current.time
-    // Only fire tap if finger barely moved and was quick
     if (dx < 12 && dy < 12 && dt < 400) {
       onTap && onTap({ clientX: t.clientX, clientY: t.clientY })
     }
     lastTouchRef.current = null
   }
+
+  // Attach wheel with passive:false so we can preventDefault
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+    function onWheel(e) {
+      e.preventDefault()
+      const rect = container.getBoundingClientRect()
+      const mouseX = e.clientX - rect.left + container.scrollLeft
+      const mouseY = e.clientY - rect.top  + container.scrollTop
+      const delta = e.deltaY > 0 ? 0.85 : 1.18
+      const oldZoom = zoomRef.current
+      const newZoom = Math.min(Math.max(oldZoom * delta, 1), 12)
+      if (newZoom === oldZoom) return
+      const ratio = newZoom / oldZoom
+      container.scrollLeft = mouseX * ratio - (e.clientX - rect.left)
+      container.scrollTop  = mouseY * ratio - (e.clientY - rect.top)
+      zoomRef.current = newZoom
+      setZoom(newZoom)
+      onZoomChange && onZoomChange(newZoom)
+    }
+    container.addEventListener('wheel', onWheel, { passive: false })
+    return () => container.removeEventListener('wheel', onWheel)
+  }, [])
 
   return (
     <div ref={containerRef}
@@ -479,25 +502,22 @@ function CalibrateScreen({ image, jobName, onDone }) {
           <svg style={{position:'absolute',inset:0,width:'100%',height:'100%',pointerEvents:'none'}}>
 {/* dots only, no line */}
             {points.map((pt,i) => {
-              // Use px units so size is consistent on all screen sizes
-              const armPx = Math.max(10/zoomLevel, 3)
-              const swPx  = Math.max(1.5/zoomLevel, 0.5)
-              const fsPx  = Math.max(11/zoomLevel, 4)
-              const col = i===0 ? '#e53935' : '#1565c0'
-              const cx = `${pt.x*100}%`, cy = `${pt.y*100}%`
-              // Convert arm to relative % for line endpoints
               const w = imgRef.current?.clientWidth || 400
               const h = imgRef.current?.clientHeight || 300
-              const axPct = armPx/w*100, ayPct = armPx/h*100
-              const cxN = pt.x*100, cyN = pt.y*100
+              // Scale arm to 0.8% of image width — works on any screen size
+              const armPct = 0.8 / zoomLevel
+              const swPct  = 0.15 / zoomLevel
+              const col = i===0 ? '#e53935' : '#1565c0'
+              const cx = pt.x*100, cy = pt.y*100
+              const axPct = armPct, ayPct = armPct * (w/h)
               return (
                 <g key={i}>
-                  <line x1={`${cxN-axPct}%`} y1={cy} x2={`${cxN+axPct}%`} y2={cy} stroke="#fff" strokeWidth={swPx*2.5}/>
-                  <line x1={cx} y1={`${cyN-ayPct}%`} x2={cx} y2={`${cyN+ayPct}%`} stroke="#fff" strokeWidth={swPx*2.5}/>
-                  <line x1={`${cxN-axPct}%`} y1={cy} x2={`${cxN+axPct}%`} y2={cy} stroke={col} strokeWidth={swPx}/>
-                  <line x1={cx} y1={`${cyN-ayPct}%`} x2={cx} y2={`${cyN+ayPct}%`} stroke={col} strokeWidth={swPx}/>
-                  <text x={cx} y={cy} dy={`${-ayPct*2}%`} textAnchor="middle" fill={col}
-                    fontSize={fsPx} fontWeight="bold"
+                  <line x1={`${cx-axPct}%`} y1={`${cy}%`} x2={`${cx+axPct}%`} y2={`${cy}%`} stroke="#fff" strokeWidth={`${swPct*2.5}%`}/>
+                  <line x1={`${cx}%`} y1={`${cy-ayPct}%`} x2={`${cx}%`} y2={`${cy+ayPct}%`} stroke="#fff" strokeWidth={`${swPct*2.5}%`}/>
+                  <line x1={`${cx-axPct}%`} y1={`${cy}%`} x2={`${cx+axPct}%`} y2={`${cy}%`} stroke={col} strokeWidth={`${swPct}%`}/>
+                  <line x1={`${cx}%`} y1={`${cy-ayPct}%`} x2={`${cx}%`} y2={`${cy+ayPct}%`} stroke={col} strokeWidth={`${swPct}%`}/>
+                  <text x={`${cx}%`} y={`${cy}%`} dy={`${-ayPct*2}%`} textAnchor="middle" fill={col}
+                    fontSize={`${0.8/zoomLevel}%`} fontWeight="bold"
                     style={{filter:'drop-shadow(0 1px 2px rgba(255,255,255,0.9))'}}>{i===0?'A':'B'}</text>
                 </g>
               )
@@ -669,7 +689,7 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
               const sw  = Math.max(1.5/zoomLevel, 0.4)
               return (
                 <g key={room.id}>
-                  <polygon points={toSvgPoints(room.points, imgSize.w, imgSize.h)} fill={(room.color||ROOM_COLORS[0]).fill} stroke={(room.color||ROOM_COLORS[0]).border} strokeWidth={Math.max(2/zoomLevel,0.5)}/>
+                  <polygon points={toSvgPoints(room.points, imgSize.w, imgSize.h)} fill={(room.color||ROOM_COLORS[0]).fill} stroke={(room.color||ROOM_COLORS[0]).border} strokeWidth={`${0.15/zoomLevel}%`}/>
                   <text x={`${c.x*100}%`} y={`${c.y*100}%`}
                     textAnchor="middle" dominantBaseline="middle" fill="#fff" fontSize={fs1} fontWeight="800"
                     style={{filter:'drop-shadow(0 1px 2px rgba(0,0,0,0.8))'}}>
@@ -684,29 +704,29 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
               )
             })}
             {points.length>=2 && (
-              <polyline points={toSvgPoints(points, imgSize.w, imgSize.h)} fill="none" stroke={color.border} strokeWidth={Math.max(2/zoomLevel,0.5)} strokeDasharray={`${Math.max(6/zoomLevel,2)},${Math.max(3/zoomLevel,1)}`}/>
+              <polyline points={toSvgPoints(points, imgSize.w, imgSize.h)} fill="none" stroke={color.border} strokeWidth={`${0.15/zoomLevel}%`} strokeDasharray={`${Math.max(6/zoomLevel,2)},${Math.max(3/zoomLevel,1)}`}/>
             )}
             {naming && (
-              <polygon points={toSvgPoints(points, imgSize.w, imgSize.h)} fill={color.fill} stroke={color.border} strokeWidth={Math.max(2/zoomLevel,0.5)}/>
+              <polygon points={toSvgPoints(points, imgSize.w, imgSize.h)} fill={color.fill} stroke={color.border} strokeWidth={`${0.15/zoomLevel}%`}/>
             )}
             {!naming && points.map((pt,i) => {
               const w = imgSize.w > 0 ? imgSize.w : 400
               const h = imgSize.h > 0 ? imgSize.h : 300
-              // Fixed px size — looks right on any screen size
-              const armPx = Math.max(8/zoomLevel, 2.5)
-              const swPx  = Math.max(1.5/zoomLevel, 0.5)
+              // % based so it scales with image on any screen
+              const armPct = 0.6 / zoomLevel
+              const swPct  = 0.12 / zoomLevel
               const col = color.border
               const cx = pt.x*100, cy = pt.y*100
-              const axPct = armPx/w*100, ayPct = armPx/h*100
+              const ayPct = armPct * (w/h)
               const isFirst = i === 0
               return (
                 <g key={i}>
-                  <line x1={`${cx-axPct}%`} y1={`${cy}%`} x2={`${cx+axPct}%`} y2={`${cy}%`} stroke="#fff" strokeWidth={swPx*2.5}/>
-                  <line x1={`${cx}%`} y1={`${cy-ayPct}%`} x2={`${cx}%`} y2={`${cy+ayPct}%`} stroke="#fff" strokeWidth={swPx*2.5}/>
-                  <line x1={`${cx-axPct}%`} y1={`${cy}%`} x2={`${cx+axPct}%`} y2={`${cy}%`} stroke={col} strokeWidth={swPx}/>
-                  <line x1={`${cx}%`} y1={`${cy-ayPct}%`} x2={`${cx}%`} y2={`${cy+ayPct}%`} stroke={col} strokeWidth={swPx}/>
-                  <circle cx={`${cx}%`} cy={`${cy}%`} r={Math.max(2/zoomLevel,1)} fill={col} stroke="#fff" strokeWidth={swPx*0.5}/>
-                  {isFirst && <circle cx={`${cx}%`} cy={`${cy}%`} r={armPx*1.2} fill="none" stroke={col} strokeWidth={swPx*0.7} strokeDasharray={`${armPx},${armPx*0.5}`}/>}
+                  <line x1={`${cx-armPct}%`} y1={`${cy}%`} x2={`${cx+armPct}%`} y2={`${cy}%`} stroke="#fff" strokeWidth={`${swPct*2.5}%`}/>
+                  <line x1={`${cx}%`} y1={`${cy-ayPct}%`} x2={`${cx}%`} y2={`${cy+ayPct}%`} stroke="#fff" strokeWidth={`${swPct*2.5}%`}/>
+                  <line x1={`${cx-armPct}%`} y1={`${cy}%`} x2={`${cx+armPct}%`} y2={`${cy}%`} stroke={col} strokeWidth={`${swPct}%`}/>
+                  <line x1={`${cx}%`} y1={`${cy-ayPct}%`} x2={`${cx}%`} y2={`${cy+ayPct}%`} stroke={col} strokeWidth={`${swPct}%`}/>
+                  <circle cx={`${cx}%`} cy={`${cy}%`} r={`${0.2/zoomLevel}%`} fill={col} stroke="#fff" strokeWidth={`${swPct*0.5}%`}/>
+                  {isFirst && <circle cx={`${cx}%`} cy={`${cy}%`} r={`${armPct*1.2}%`} fill="none" stroke={col} strokeWidth={`${swPct*0.7}%`} strokeDasharray={`${armPct}%,${armPct*0.5}%`}/>}
                 </g>
               )
             })}
