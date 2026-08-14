@@ -418,10 +418,10 @@ function CalibrateScreen({ image, jobName, onDone }) {
             )}
             {points.map((pt,i) => {
               const w = imgRef.current?.clientWidth || 400
-              const dr  = `${Math.max(10/zoomLevel,2)/w*100}%`
+              const dr  = `${Math.max(6/zoomLevel,1.5)/w*100}%`
               const dr2 = `${Math.max(3/zoomLevel,1)/w*100}%`
-              const dfs = `${Math.max(14/zoomLevel,4)/w*100}%`
-              const ddy = `${-Math.max(14/zoomLevel,4)/w*100}%`
+              const dfs = `${Math.max(10/zoomLevel,3)/w*100}%`
+              const ddy = `${-Math.max(10/zoomLevel,3)/w*100}%`
               return (
                 <g key={i}>
                   <circle cx={`${pt.x*100}%`} cy={`${pt.y*100}%`} r={dr} fill={i===0?'#e53935':'#1565c0'} stroke="#fff" strokeWidth={dr2} opacity="0.95"/>
@@ -581,7 +581,7 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
             {!naming && points.map((pt,i) => {
               // Use viewport-relative sizing: 8px equivalent
               // SVG width = imgSize.w pixels, so 8px = 8/imgSize.w * 100%
-              const pxSize = Math.max(8 / zoomLevel, 2)
+              const pxSize = Math.max(5 / zoomLevel, 1.5)
               const dr  = imgSize.w > 0 ? `${pxSize / imgSize.w * 100}%` : `${0.6/zoomLevel}%`
               const dsw = imgSize.w > 0 ? `${2 / imgSize.w * 100}%` : `${0.2/zoomLevel}%`
               return (
