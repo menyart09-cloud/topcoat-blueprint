@@ -675,7 +675,7 @@ function ResultsScreen({ image, rooms, jobName, onReset, onEdit }) {
       const aspectRatio = imgH / imgW
       const cappedImgW = Math.min(imgW, maxW)
       const cappedImgH = Math.round(cappedImgW * aspectRatio)
-      const legendH = Math.round(cappedImgH * 0.65)
+      const legendH = Math.round(cappedImgH * 0.75)
       const rowH    = Math.round((legendH - 220) / Math.max(rooms.length, 1))
       const totalH  = cappedImgH + legendH
 
@@ -752,7 +752,15 @@ ctx.fillText(`${(room.sqft||0).toLocaleString()} sf`, c.x * cappedImgW, c.y * ca
         cur += F * 1.4
         ctx.font = `bold ${F * 1.3}px Arial`
         ctx.fillStyle = '#4caf50'
-        ctx.fillText(`Job Total: $${parseFloat(totalPrice).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}  ($${parseFloat(pricePerSqft).toFixed(2)}/sf)`, pad, cur)
+        const priceText = `Job Total: $${parseFloat(totalPrice).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}  @  $${parseFloat(pricePerSqft).toFixed(2)}/sf`
+        // Auto-shrink font if text too wide
+        let pFont = F * 1.3
+        ctx.font = `bold ${pFont}px Arial`
+        while (ctx.measureText(priceText).width > cappedImgW - pad * 2 && pFont > F * 0.7) {
+          pFont -= 2
+          ctx.font = `bold ${pFont}px Arial`
+        }
+        ctx.fillText(priceText, pad, cur)
         cur += F * 0.4
       }
 
