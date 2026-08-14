@@ -515,10 +515,10 @@ function CalibrateScreen({ image, jobName, onDone }) {
               const axPct = armPct, ayPct = armPct * (w/h)
               return (
                 <g key={i}>
-                  <line x1={`${cx-axPct}%`} y1={`${cy}%`} x2={`${cx+axPct}%`} y2={`${cy}%`} stroke="#fff" strokeWidth={`${sw2*2.5}%`}/>
-                  <line x1={`${cx}%`} y1={`${cy-armY2}%`} x2={`${cx}%`} y2={`${cy+armY2}%`} stroke="#fff" strokeWidth={`${sw2*2.5}%`}/>
-                  <line x1={`${cx-axPct}%`} y1={`${cy}%`} x2={`${cx+axPct}%`} y2={`${cy}%`} stroke={col} strokeWidth={`${sw2}%`}/>
-                  <line x1={`${cx}%`} y1={`${cy-armY2}%`} x2={`${cx}%`} y2={`${cy+armY2}%`} stroke={col} strokeWidth={`${sw2}%`}/>
+                  <line x1={`${cx-axPct}%`} y1={`${cy}%`} x2={`${cx+axPct}%`} y2={`${cy}%`} stroke="#fff" strokeWidth={`${swPct*2.5}%`}/>
+                  <line x1={`${cx}%`} y1={`${cy-ayPct}%`} x2={`${cx}%`} y2={`${cy+ayPct}%`} stroke="#fff" strokeWidth={`${swPct*2.5}%`}/>
+                  <line x1={`${cx-axPct}%`} y1={`${cy}%`} x2={`${cx+axPct}%`} y2={`${cy}%`} stroke={col} strokeWidth={`${swPct}%`}/>
+                  <line x1={`${cx}%`} y1={`${cy-ayPct}%`} x2={`${cx}%`} y2={`${cy+ayPct}%`} stroke={col} strokeWidth={`${swPct}%`}/>
                   <text x={`${cx}%`} y={`${cy}%`} dy={`${-ayPct*2}%`} textAnchor="middle" fill={col}
                     fontSize={`${0.8/zoomLevel}%`} fontWeight="bold"
                     style={{filter:'drop-shadow(0 1px 2px rgba(255,255,255,0.9))'}}>{i===0?'A':'B'}</text>
@@ -692,7 +692,7 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
               const sw  = Math.max(1.5/zoomLevel, 0.4)
               return (
                 <g key={room.id}>
-                  <polygon points={toSvgPoints(room.points, imgSize.w, imgSize.h)} fill={(room.color||ROOM_COLORS[0]).fill} stroke={(room.color||ROOM_COLORS[0]).border} strokeWidth={`${(2/zoomLevel/((imgSize.w||400)))*100}%`}/>
+                  <polygon points={toSvgPoints(room.points, imgSize.w, imgSize.h)} fill={(room.color||ROOM_COLORS[0]).fill} stroke={(room.color||ROOM_COLORS[0]).border} strokeWidth={`${0.25/zoomLevel}%`}/>
                   <text x={`${c.x*100}%`} y={`${c.y*100}%`}
                     textAnchor="middle" dominantBaseline="middle" fill="#fff" fontSize={fs1} fontWeight="800"
                     style={{filter:'drop-shadow(0 1px 2px rgba(0,0,0,0.8))'}}>
@@ -710,29 +710,26 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
               <polyline points={toSvgPoints(points, imgSize.w, imgSize.h)} fill="none" stroke={color.border} strokeWidth={`${0.15/zoomLevel}%`} strokeDasharray={`${Math.max(6/zoomLevel,2)},${Math.max(3/zoomLevel,1)}`}/>
             )}
             {naming && (
-              <polygon points={toSvgPoints(points, imgSize.w, imgSize.h)} fill={color.fill} stroke={color.border} strokeWidth={`${(2/zoomLevel/((imgSize.w||400)))*100}%`}/>
+              <polygon points={toSvgPoints(points, imgSize.w, imgSize.h)} fill={color.fill} stroke={color.border} strokeWidth={`${0.25/zoomLevel}%`}/>
             )}
             {!naming && points.map((pt,i) => {
               const w = imgSize.w > 0 ? imgSize.w : 400
               const h = imgSize.h > 0 ? imgSize.h : 300
               // % based so it scales with image on any screen
-              const armX2 = (8/zoomLevel/w)*100
-              const armY2 = (8/zoomLevel/h)*100
-              const sw2   = (1.5/zoomLevel/w)*100
-              const dotR  = (3/zoomLevel/w)*100
-              
+              const armPct = 1.0 / zoomLevel
+              const swPct  = 0.2 / zoomLevel
               const col = color.border
               const cx = pt.x*100, cy = pt.y*100
-              
+              const ayPct = armPct * (w/h)
               const isFirst = i === 0
               return (
                 <g key={i}>
-                  <line x1={`${cx-armX2}%`} y1={`${cy}%`} x2={`${cx+armX2}%`} y2={`${cy}%`} stroke="#fff" strokeWidth={`${sw2*2.5}%`}/>
-                  <line x1={`${cx}%`} y1={`${cy-armY2}%`} x2={`${cx}%`} y2={`${cy+armY2}%`} stroke="#fff" strokeWidth={`${sw2*2.5}%`}/>
-                  <line x1={`${cx-armX2}%`} y1={`${cy}%`} x2={`${cx+armX2}%`} y2={`${cy}%`} stroke={col} strokeWidth={`${sw2}%`}/>
-                  <line x1={`${cx}%`} y1={`${cy-armY2}%`} x2={`${cx}%`} y2={`${cy+armY2}%`} stroke={col} strokeWidth={`${sw2}%`}/>
+                  <line x1={`${cx-armPct}%`} y1={`${cy}%`} x2={`${cx+armPct}%`} y2={`${cy}%`} stroke="#fff" strokeWidth={`${swPct*2.5}%`}/>
+                  <line x1={`${cx}%`} y1={`${cy-ayPct}%`} x2={`${cx}%`} y2={`${cy+ayPct}%`} stroke="#fff" strokeWidth={`${swPct*2.5}%`}/>
+                  <line x1={`${cx-armPct}%`} y1={`${cy}%`} x2={`${cx+armPct}%`} y2={`${cy}%`} stroke={col} strokeWidth={`${swPct}%`}/>
+                  <line x1={`${cx}%`} y1={`${cy-ayPct}%`} x2={`${cx}%`} y2={`${cy+ayPct}%`} stroke={col} strokeWidth={`${swPct}%`}/>
                   <circle cx={`${cx}%`} cy={`${cy}%`} r={`${0.2/zoomLevel}%`} fill={col} stroke="#fff" strokeWidth={`${swPct*0.5}%`}/>
-                  {isFirst && <circle cx={`${cx}%`} cy={`${cy}%`} r={`${armX2*1.2}%`} fill="none" stroke={col} strokeWidth={`${sw2*0.7}%`} strokeDasharray={`${armX2}%,${armX2*0.5}%`}/>}
+                  {isFirst && <circle cx={`${cx}%`} cy={`${cy}%`} r={`${armPct*1.2}%`} fill="none" stroke={col} strokeWidth={`${swPct*0.7}%`} strokeDasharray={`${armPct}%,${armPct*0.5}%`}/>}
                 </g>
               )
             })}
