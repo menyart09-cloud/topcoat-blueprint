@@ -515,16 +515,7 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
   const imgRef = useRef()
   const containerRef = useRef()
 
-  // Scan blueprint for room names on first load
-  useEffect(() => {
-    async function doScan() {
-      setScanningNames(true)
-      const names = await scanRoomNames(image.base64, image.mime)
-      setScannedNames(names || [])
-      setScanningNames(false)
-    }
-    doScan()
-  }, [])
+  // Room names are scanned on-demand when user closes a polygon
 
   const colorIdx = rooms.length % ROOM_COLORS.length
   const color    = ROOM_COLORS[colorIdx]
@@ -569,7 +560,14 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
     const perim = Math.round(polygonPerimeterFt(points, fracPerFt, aspectRatio))
     const c     = centroid(points)
     setNaming({ sqft, perim, centroid: c, color })
-    setCustomName('') // user picks from list or types
+    setCustomName('')
+    // Scan for room names if we haven't yet
+    if (scannedNames === null && !scanningNames) {
+      setScanningNames(true)
+      const names = await scanRoomNames(image.base64, image.mime)
+      setScannedNames(names && names.length > 0 ? names : [])
+      setScanningNames(false)
+    }
   }
 
   function confirmRoom() {
