@@ -283,7 +283,7 @@ function UploadScreen({ onFile, error, converting, jobName, setJobName }) {
 
 // ── ZoomableBlueprint ─────────────────────────────────────────
 // Handles pinch-to-zoom + pan on mobile, click/tap for point placement
-function ZoomableBlueprint({ onTap, children, style }) {
+function ZoomableBlueprint({ onTap, children, style, onZoomChange }) {
   const containerRef = useRef()
   const lastTouchRef = useRef(null)
   const pinchRef     = useRef(null)
@@ -317,6 +317,7 @@ function ZoomableBlueprint({ onTap, children, style }) {
       const newZoom = Math.min(Math.max(zoomRef.current * delta, 1), 12)
       zoomRef.current = newZoom
       setZoom(newZoom)
+      onZoomChange && onZoomChange(newZoom)
       pinchRef.current = newDist
       lastTouchRef.current = null // cancel tap during pinch
     }
@@ -366,6 +367,7 @@ function ZoomableBlueprint({ onTap, children, style }) {
 function CalibrateScreen({ image, jobName, onDone }) {
   const [points, setPoints]   = useState([])
   const [knownFt, setKnownFt] = useState('')
+  const [zoomLevel, setZoomLevel] = useState(1)
   const imgRef = useRef()
 
   function handleTap(e) {
@@ -403,7 +405,7 @@ function CalibrateScreen({ image, jobName, onDone }) {
       </div>
 
       {/* Zoomable blueprint - max height */}
-      <ZoomableBlueprint onTap={handleTap} style={{maxHeight:'72vh'}}>
+      <ZoomableBlueprint onTap={handleTap} style={{maxHeight:'72vh'}} onZoomChange={setZoomLevel}>
         <div style={{position:'relative'}}>
           <img ref={imgRef} src={image.src} alt="Blueprint"
             style={{width:'100%',display:'block',userSelect:'none'}} draggable={false} />
@@ -413,13 +415,16 @@ function CalibrateScreen({ image, jobName, onDone }) {
                     x2={`${points[1].x*100}%`} y2={`${points[1].y*100}%`}
                     stroke="#fff" strokeWidth="2" strokeDasharray="6,3" opacity="0.9"/>
             )}
-            {points.map((pt,i) => (
-              <g key={i}>
-                <circle cx={`${pt.x*100}%`} cy={`${pt.y*100}%`} r="0.6%" fill={i===0?'#e53935':'#1565c0'} stroke="#fff" strokeWidth="0.2%" opacity="0.95"/>
-                <circle cx={`${pt.x*100}%`} cy={`${pt.y*100}%`} r="0.2%" fill="#fff" opacity="0.9"/>
-                <text x={`${pt.x*100}%`} y={`${pt.y*100}%`} dy="-1.5%" textAnchor="middle" fill="#fff" fontSize="1.5%" fontWeight="bold" style={{filter:'drop-shadow(0 1px 3px rgba(0,0,0,0.9))'}}>{i===0?'A':'B'}</text>
-              </g>
-            ))}
+            {points.map((pt,i) => {
+              const dr = `${0.6/zoomLevel}%`, dr2 = `${0.2/zoomLevel}%`, dfs = `${1.5/zoomLevel}%`, ddy = `${-1.5/zoomLevel}%`
+              return (
+                <g key={i}>
+                  <circle cx={`${pt.x*100}%`} cy={`${pt.y*100}%`} r={dr} fill={i===0?'#e53935':'#1565c0'} stroke="#fff" strokeWidth={dr2} opacity="0.95"/>
+                  <circle cx={`${pt.x*100}%`} cy={`${pt.y*100}%`} r={`${0.1/zoomLevel}%`} fill="#fff" opacity="0.9"/>
+                  <text x={`${pt.x*100}%`} y={`${pt.y*100}%`} dy={ddy} textAnchor="middle" fill="#fff" fontSize={dfs} fontWeight="bold" style={{filter:'drop-shadow(0 1px 3px rgba(0,0,0,0.9))'}}>{i===0?'A':'B'}</text>
+                </g>
+              )
+            })}
           </svg>
         </div>
       </ZoomableBlueprint>
@@ -465,6 +470,7 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
   const [naming,      setNaming]      = useState(null)
   const [customName,  setCustomName]  = useState('')
   const [identifying, setIdentifying] = useState(false)
+  const [zoomLevel,   setZoomLevel]   = useState(1)
   const imgRef = useRef()
   const containerRef = useRef()
 
@@ -540,7 +546,7 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
       </div>
 
       {/* Zoomable pinch-to-zoom drawing area - fills all available space */}
-      <ZoomableBlueprint onTap={e=>{if(!naming&&!identifying)handleTap(e)}} style={{flex:1,maxHeight:'none',minHeight:0}}>
+      <ZoomableBlueprint onTap={e=>{if(!naming&&!identifying)handleTap(e)}} style={{flex:1,maxHeight:'none',minHeight:0}} onZoomChange={setZoomLevel}>
         <div style={{position:'relative'}}>
           <img ref={imgRef} src={image.src} alt="Blueprint"
             style={{width:'100%',display:'block',userSelect:'none'}} draggable={false}
@@ -567,10 +573,15 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
             {naming && (
               <polygon points={toSvgPoints(points, imgSize.w, imgSize.h)} fill={color.fill} stroke={color.border} strokeWidth="2.5"/>
             )}
-            {!naming && points.map((pt,i) => (
-              <circle key={i} cx={`${pt.x*100}%`} cy={`${pt.y*100}%`} r="0.6%"
-                fill={i===0?color.border:'#fff'} stroke={i===0?'#fff':color.border} strokeWidth="0.2%" opacity="0.9"/>
-            ))}
+            {!naming && points.map((pt,i) => {
+              // Dots shrink as zoom increases so they stay same visual size
+              const dr = `${0.6 / zoomLevel}%`
+              const dsw = `${0.2 / zoomLevel}%`
+              return (
+                <circle key={i} cx={`${pt.x*100}%`} cy={`${pt.y*100}%`} r={dr}
+                  fill={i===0?color.border:'#fff'} stroke={i===0?'#fff':color.border} strokeWidth={dsw} opacity="0.9"/>
+              )
+            })}
           </svg>
         </div>
       </ZoomableBlueprint>
