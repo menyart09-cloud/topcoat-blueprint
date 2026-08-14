@@ -4,7 +4,7 @@ export default async function handler(req, res) {
   if (!base64 || !mime) return res.status(400).json({ error: 'Missing image data' })
   if (base64.length > 6_000_000) return res.status(413).json({ error: 'Image too large. Use a photo under 4MB.' })
 
-  // Mode: identify — just name the room at a given location
+  // Mode: identify — name the room at a given polygon location
   if (mode === 'identify' && customPrompt) {
     try {
       const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -24,11 +24,30 @@ export default async function handler(req, res) {
         })
       })
       const data = await response.json()
-      if (!response.ok) return res.status(response.status).json({ error: data?.error?.message || 'AI API error' })
+      if (!response.ok) return res.status(200).json({ name: 'Room', confidence: 'low' })
+      
       const raw = (data.content || []).map(b => b.text || '').join('').trim()
-      const match = raw.match(/\{[\s\S]*\}/)
-      if (!match) return res.status(200).json({ name: 'Room', confidence: 'low' })
-      return res.status(200).json(JSON.parse(match[0]))
+      
+      // Try JSON parse first
+      const jsonMatch = raw.match(/\{[\s\S]*\}/)
+      if (jsonMatch) {
+        try {
+          const parsed = JSON.parse(jsonMatch[0])
+          if (parsed.name && parsed.name !== 'Room') return res.status(200).json(parsed)
+        } catch(e) {}
+      }
+      
+      // Try extracting name from "name": "value" pattern
+      const nameMatch = raw.match(/"name"\s*:\s*"([^"]+)"/)
+      if (nameMatch && nameMatch[1]) return res.status(200).json({ name: nameMatch[1], confidence: 'medium' })
+      
+      // If AI returned just a plain room name (no JSON), use it directly
+      const cleaned = raw.replace(/```json|```|\{|\}|"name"\s*:/gi, '').replace(/"/g, '').trim()
+      if (cleaned.length > 0 && cleaned.length < 60 && !cleaned.includes('{') && !cleaned.includes(':')) {
+        return res.status(200).json({ name: cleaned, confidence: 'medium' })
+      }
+      
+      return res.status(200).json({ name: 'Room', confidence: 'low' })
     } catch (err) {
       return res.status(200).json({ name: 'Room', confidence: 'low' })
     }
