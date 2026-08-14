@@ -613,9 +613,25 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
   }
 
   function confirmRoom() {
-    const name = customName.trim() || "Room"
-    onAddRoom({ id: Date.now(), name, sqft: naming.sqft, perim: naming.perim, points: [...points], color, colorIdx })
-    setPoints([]); setNaming(null); setCustomName('')
+    try {
+      if (!naming) return
+      const name = customName.trim() || 'Room'
+      const roomColor = naming.color || color || ROOM_COLORS[0]
+      const roomColorIdx = colorIdx || 0
+      onAddRoom({
+        id: Date.now(),
+        name,
+        sqft: naming.sqft || 0,
+        perim: naming.perim || 0,
+        points: [...points],
+        color: roomColor,
+        colorIdx: roomColorIdx
+      })
+      setPoints([]); setNaming(null); setCustomName('')
+    } catch(err) {
+      console.error('confirmRoom error:', err)
+      setPoints([]); setNaming(null); setCustomName('')
+    }
   }
 
   function cancelRoom() { setPoints([]); setNaming(null); setCustomName('') }
@@ -653,7 +669,7 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
               const sw  = Math.max(1.5/zoomLevel, 0.4)
               return (
                 <g key={room.id}>
-                  <polygon points={toSvgPoints(room.points, imgSize.w, imgSize.h)} fill={room.color.fill} stroke={room.color.border} strokeWidth={Math.max(2/zoomLevel,0.5)}/>
+                  <polygon points={toSvgPoints(room.points, imgSize.w, imgSize.h)} fill={(room.color||ROOM_COLORS[0]).fill} stroke={(room.color||ROOM_COLORS[0]).border} strokeWidth={Math.max(2/zoomLevel,0.5)}/>
                   <text x={`${c.x*100}%`} y={`${c.y*100}%`}
                     textAnchor="middle" dominantBaseline="middle" fill="#fff" fontSize={fs1} fontWeight="800"
                     style={{filter:'drop-shadow(0 1px 2px rgba(0,0,0,0.8))'}}>
@@ -986,7 +1002,7 @@ ctx.fillText(`${(room.sqft||0).toLocaleString()} sf`, c.x * cappedImgW, c.y * ca
           <svg style={{position:'absolute',inset:0,width:'100%',height:'100%',pointerEvents:'none'}}>
             {rooms.map(room => (
               <g key={room.id}>
-                <polygon points={toSvgPoints(room.points,imgSize.w,imgSize.h)} fill={room.color.fill} stroke={room.color.border} strokeWidth="2"/>
+                <polygon points={toSvgPoints(room.points,imgSize.w,imgSize.h)} fill={(room.color||ROOM_COLORS[0]).fill} stroke={(room.color||ROOM_COLORS[0]).border} strokeWidth="2"/>
                 <text x={`${centroid(room.points).x*100}%`} y={`${centroid(room.points).y*100}%`}
                   textAnchor="middle" dominantBaseline="middle" fill="#fff" fontSize="10" fontWeight="800"
                   style={{filter:'drop-shadow(0 1px 3px rgba(0,0,0,0.9))'}}>
@@ -1008,7 +1024,7 @@ ctx.fillText(`${(room.sqft||0).toLocaleString()} sf`, c.x * cappedImgW, c.y * ca
         <div style={{fontWeight:700,fontSize:14,color:'#333',marginBottom:12}}>Room Breakdown</div>
         {rooms.map(room => (
           <div key={room.id} style={{display:'flex',alignItems:'center',gap:10,paddingBottom:10,marginBottom:10,borderBottom:'1px solid #f0f0f0'}}>
-            <div style={{width:14,height:14,borderRadius:3,background:room.color.fill,border:`2px solid ${room.color.border}`,flexShrink:0}} />
+            <div style={{width:14,height:14,borderRadius:3,background:(room.color||ROOM_COLORS[0]).fill,border:`2px solid ${(room.color||ROOM_COLORS[0]).border}`,flexShrink:0}} />
             <div style={{flex:1}}>
               <div style={{fontWeight:600,fontSize:14,color:'#222'}}>{room.name}</div>
               <div style={{fontSize:12,color:'#888'}}>{room.sqft.toLocaleString()} sq ft · {room.perim} ft perimeter</div>
