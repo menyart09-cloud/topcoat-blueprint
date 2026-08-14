@@ -344,16 +344,19 @@ function ZoomableBlueprint({ onTap, children, style }) {
       onTouchEnd={onTouchEnd}
       onClick={e => { if (!('ontouchstart' in window)) onTap && onTap(e) }}
     >
-      <div style={{
-        transform: `scale(${zoom})`,
-        transformOrigin: 'top left',
-        transition: 'none',
-        position: 'relative',
-        width: '100%',
-        imageRendering: 'high-quality',
-        WebkitImageRendering: 'high-quality',
-      }}>
-        {children}
+      {/* Outer div expands to hold scaled content so container can scroll */}
+      <div style={{ width: `${zoom * 100}%`, height: `${zoom * 100}%`, minHeight: '100%' }}>
+        <div style={{
+          transform: `scale(${zoom})`,
+          transformOrigin: 'top left',
+          transition: 'none',
+          position: 'relative',
+          width: `${100 / zoom}%`,
+          imageRendering: 'high-quality',
+          WebkitImageRendering: 'high-quality',
+        }}>
+          {children}
+        </div>
       </div>
     </div>
   )
