@@ -1134,7 +1134,7 @@ export default function App() {
 
   function reset() {
     setScreen('upload'); setImage(null); setFracPerFt(null); setRooms([]); setError(''); setConverting(false)
-    // Keep job name so they can reuse it
+    setJobName('')
   }
 
   return (
