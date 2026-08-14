@@ -149,22 +149,22 @@ Respond ONLY with this JSON (no markdown, no explanation):
 
 // ── Scan blueprint for all room names ────────────────────────
 async function scanRoomNames(base64, mime) {
-  const prompt = `Look carefully at this blueprint floor plan. List ALL room names and space labels you can see printed on it.
-Include every labeled space: bedrooms, bathrooms, living areas, kitchens, garages, hallways, offices, utility rooms, storage, mechanical rooms, lobbies, gyms, etc.
-Respond ONLY with a JSON array of strings — just the room names, no other text:
-["Living Room", "Kitchen", "Master Bedroom", ...]`
+  const prompt = `Look carefully at this blueprint floor plan image. 
+Find and list ALL room names, space labels, and area names printed on it.
+Include every labeled space you can see: any text that identifies a room or area.
+
+Respond ONLY with a JSON array of strings — room names only, no numbers, no extra text:
+["Lobby", "Office", "Kitchen", "Master Bedroom", "Garage"]`
+
   try {
-    const res = await fetch('/api/scan', {
+    // Call the API directly for room scanning — bypass identify mode
+    const res = await fetch('/api/rooms', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ base64, mime, customPrompt: prompt, mode: 'identify' })
+      body: JSON.stringify({ base64, mime, prompt })
     })
+    if (!res.ok) return null
     const data = await res.json()
-    // The API returns {name: ...} for identify mode, but we want the raw array
-    // Try to parse the raw response as array
     if (Array.isArray(data)) return data
-    if (data.name && data.name.startsWith('[')) {
-      try { return JSON.parse(data.name) } catch(e) {}
-    }
     return null
   } catch { return null }
 }
@@ -627,15 +627,24 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
             )}
             {!naming && points.map((pt,i) => {
               const w = imgSize.w > 0 ? imgSize.w : 400
-              const centerR = `${Math.max(2/zoomLevel,0.6)/w*100}%`
-              const ringR   = `${Math.max(4.5/zoomLevel,1.2)/w*100}%`
-              const sw      = `${Math.max(1.2/zoomLevel,0.3)/w*100}%`
+              // Crosshair style - same as calibrate dots, colored + white outline
+              const arm = Math.max(5/zoomLevel,1.5)/w*100
+              const sw  = Math.max(1.5/zoomLevel,0.4)/w*100
+              const col = color.border
+              const cx = pt.x*100, cy = pt.y*100
+              const isFirst = i === 0
               return (
                 <g key={i}>
-                  <circle cx={`${pt.x*100}%`} cy={`${pt.y*100}%`} r={ringR}
-                    fill="none" stroke={i===0?color.border:'#fff'} strokeWidth={sw} opacity="1"/>
-                  <circle cx={`${pt.x*100}%`} cy={`${pt.y*100}%`} r={centerR}
-                    fill={i===0?color.border:'#fff'} opacity="1"/>
+                  {/* White shadow for visibility */}
+                  <line x1={`${cx-arm}%`} y1={`${cy}%`} x2={`${cx+arm}%`} y2={`${cy}%`} stroke="#fff" strokeWidth={`${sw*2.5}%`}/>
+                  <line x1={`${cx}%`} y1={`${cy-arm}%`} x2={`${cx}%`} y2={`${cy+arm}%`} stroke="#fff" strokeWidth={`${sw*2.5}%`}/>
+                  {/* Colored crosshair */}
+                  <line x1={`${cx-arm}%`} y1={`${cy}%`} x2={`${cx+arm}%`} y2={`${cy}%`} stroke={col} strokeWidth={`${sw}%`}/>
+                  <line x1={`${cx}%`} y1={`${cy-arm}%`} x2={`${cx}%`} y2={`${cy+arm}%`} stroke={col} strokeWidth={`${sw}%`}/>
+                  {/* Center dot */}
+                  <circle cx={`${cx}%`} cy={`${cy}%`} r={`${Math.max(1.5/zoomLevel,0.5)/w*100}%`} fill={col} stroke="#fff" strokeWidth={`${sw*0.5}%`}/>
+                  {/* Start indicator */}
+                  {isFirst && <circle cx={`${cx}%`} cy={`${cy}%`} r={`${arm*1.5}%`} fill="none" stroke={col} strokeWidth={`${sw*0.7}%`} strokeDasharray={`${arm}%,${arm*0.5}%`}/>}
                 </g>
               )
             })}
