@@ -613,7 +613,7 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
   }
 
   function confirmRoom() {
-    const name = customName.trim() || naming.aiName
+    const name = customName.trim() || "Room"
     onAddRoom({ id: Date.now(), name, sqft: naming.sqft, perim: naming.perim, points: [...points], color, colorIdx })
     setPoints([]); setNaming(null); setCustomName('')
   }
