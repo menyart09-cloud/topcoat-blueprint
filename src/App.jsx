@@ -665,7 +665,7 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
               const w = imgSize.w || 400
               const fs1 = Math.max(11/zoomLevel, 3)   // name font px
               const fs2 = Math.max(9/zoomLevel, 2.5)   // sqft font px
-              const dy2 = `${Math.max(12/zoomLevel,4)/h*100}%`  // offset
+              const dy2 = Math.max(12/zoomLevel, 4)  // offset in px
               const sw  = Math.max(1.5/zoomLevel, 0.4)
               return (
                 <g key={room.id}>
@@ -675,7 +675,7 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
                     style={{filter:'drop-shadow(0 1px 2px rgba(0,0,0,0.8))'}}>
                     {room.name}
                   </text>
-                  <text x={`${c.x*100}%`} y={`${c.y*100}%`} dy={`${dy2}%`}
+                  <text x={`${c.x*100}%`} y={`${c.y*100}%`} dy={dy2}
                     textAnchor="middle" dominantBaseline="middle" fill="rgba(255,255,255,0.9)" fontSize={fs2} fontWeight="600"
                     style={{filter:'drop-shadow(0 1px 2px rgba(0,0,0,0.8))'}}>
                     {room.sqft.toLocaleString()} sf
