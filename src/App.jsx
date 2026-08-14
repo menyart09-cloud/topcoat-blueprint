@@ -335,12 +335,27 @@ function ZoomableBlueprint({ onTap, children, style, onZoomChange }) {
         e.touches[0].clientY - e.touches[1].clientY
       )
       const delta = newDist / pinchRef.current
-      const newZoom = Math.min(Math.max(zoomRef.current * delta, 1), 12)
+      const oldZoom = zoomRef.current
+      const newZoom = Math.min(Math.max(oldZoom * delta, 1), 12)
+
+      // Zoom toward pinch midpoint so view stays centered on fingers
+      const container = containerRef.current
+      if (container && newZoom !== oldZoom) {
+        const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2
+        const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2
+        const rect = container.getBoundingClientRect()
+        const relX = midX - rect.left + container.scrollLeft
+        const relY = midY - rect.top  + container.scrollTop
+        const ratio = newZoom / oldZoom
+        container.scrollLeft = relX * ratio - (midX - rect.left)
+        container.scrollTop  = relY * ratio - (midY - rect.top)
+      }
+
       zoomRef.current = newZoom
       setZoom(newZoom)
       onZoomChange && onZoomChange(newZoom)
       pinchRef.current = newDist
-      lastTouchRef.current = null // cancel tap during pinch
+      lastTouchRef.current = null
     }
   }
 
