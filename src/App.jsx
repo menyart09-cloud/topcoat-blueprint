@@ -147,6 +147,28 @@ Respond ONLY with this JSON (no markdown, no explanation):
   } catch { return 'Room' }
 }
 
+// ── Scan blueprint for all room names ────────────────────────
+async function scanRoomNames(base64, mime) {
+  const prompt = `Look carefully at this blueprint floor plan. List ALL room names and space labels you can see printed on it.
+Include every labeled space: bedrooms, bathrooms, living areas, kitchens, garages, hallways, offices, utility rooms, storage, mechanical rooms, lobbies, gyms, etc.
+Respond ONLY with a JSON array of strings — just the room names, no other text:
+["Living Room", "Kitchen", "Master Bedroom", ...]`
+  try {
+    const res = await fetch('/api/scan', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ base64, mime, customPrompt: prompt, mode: 'identify' })
+    })
+    const data = await res.json()
+    // The API returns {name: ...} for identify mode, but we want the raw array
+    // Try to parse the raw response as array
+    if (Array.isArray(data)) return data
+    if (data.name && data.name.startsWith('[')) {
+      try { return JSON.parse(data.name) } catch(e) {}
+    }
+    return null
+  } catch { return null }
+}
+
 // ── Save blueprint image to photo album ───────────────────────
 async function saveToPhotos(canvasEl, jobName) {
   const filename = `${(jobName||'TopCoat').replace(/[^a-zA-Z0-9]/g,'-')}-blueprint.jpg`
@@ -410,24 +432,14 @@ function CalibrateScreen({ image, jobName, onDone }) {
           <img ref={imgRef} src={image.src} alt="Blueprint"
             style={{width:'100%',display:'block',userSelect:'none'}} draggable={false} />
           <svg style={{position:'absolute',inset:0,width:'100%',height:'100%',pointerEvents:'none'}}>
-            {points.length===2 && (
-              <line x1={`${points[0].x*100}%`} y1={`${points[0].y*100}%`}
-                    x2={`${points[1].x*100}%`} y2={`${points[1].y*100}%`}
-                    stroke="#fff" strokeWidth={imgRef.current?`${2/imgRef.current.clientWidth*100}%`:`${0.15/zoomLevel}%`}
-                    strokeDasharray={imgRef.current?`${6/imgRef.current.clientWidth*100}%,${3/imgRef.current.clientWidth*100}%`:"6,3"} opacity="1"/>
-            )}
+{/* dots only, no line */}
             {points.map((pt,i) => {
               const w = imgRef.current?.clientWidth || 400
-              const dr  = `${Math.max(8/zoomLevel,2)/w*100}%`
-              const dr2 = `${Math.max(3/zoomLevel,1)/w*100}%`
-              const dfs = `${Math.max(10/zoomLevel,3)/w*100}%`
-              const ddy = `${-Math.max(10/zoomLevel,3)/w*100}%`
+              // Small solid dot — no ring, no label
+              const dr = `${Math.max(5/zoomLevel,1.5)/w*100}%`
               return (
-                <g key={i}>
-                  <circle cx={`${pt.x*100}%`} cy={`${pt.y*100}%`} r={dr} fill={i===0?'#e53935':'#1565c0'} stroke="#fff" strokeWidth={dr2} opacity="1"/>
-                  <circle cx={`${pt.x*100}%`} cy={`${pt.y*100}%`} r={`${Math.max(3/zoomLevel,1)/w*100}%`} fill="#fff" opacity="1"/>
-                  <text x={`${pt.x*100}%`} y={`${pt.y*100}%`} dy={ddy} textAnchor="middle" fill="#fff" fontSize={dfs} fontWeight="bold" style={{filter:'drop-shadow(0 1px 3px rgba(0,0,0,0.9))'}}>{i===0?'A':'B'}</text>
-                </g>
+                <circle key={i} cx={`${pt.x*100}%`} cy={`${pt.y*100}%`} r={dr}
+                  fill={i===0?'#e53935':'#1565c0'} stroke="#fff" strokeWidth={`${Math.max(1.5/zoomLevel,0.5)/w*100}%`} opacity="1"/>
               )
             })}
           </svg>
@@ -450,7 +462,7 @@ function CalibrateScreen({ image, jobName, onDone }) {
         </div>
         {/* Distance input row */}
         <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:8}}>
-          <input type="text" placeholder="e.g. 64ft, 28ft 2in, or 144in" value={knownFt}
+          <input type="text" inputMode="decimal" placeholder="e.g. 64 or 28.17 or 144in" value={knownFt}
             onChange={e=>setKnownFt(e.target.value)}
             style={{flex:1,padding:'8px 12px',fontSize:14,border:'2px solid #ddd',borderRadius:8,outline:'none'}} />
           <span style={{fontSize:13,color:'#666',fontWeight:500,flexShrink:0}}>ft</span>
@@ -476,8 +488,21 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
   const [customName,  setCustomName]  = useState('')
   const [identifying, setIdentifying] = useState(false)
   const [zoomLevel,   setZoomLevel]   = useState(1)
+  const [scannedNames, setScannedNames] = useState(null)  // null = not yet scanned
+  const [scanningNames, setScanningNames] = useState(false)
   const imgRef = useRef()
   const containerRef = useRef()
+
+  // Scan blueprint for room names on first load
+  useEffect(() => {
+    async function doScan() {
+      setScanningNames(true)
+      const names = await scanRoomNames(image.base64, image.mime)
+      setScannedNames(names || [])
+      setScanningNames(false)
+    }
+    doScan()
+  }, [])
 
   const colorIdx = rooms.length % ROOM_COLORS.length
   const color    = ROOM_COLORS[colorIdx]
@@ -579,14 +604,17 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
               <polygon points={toSvgPoints(points, imgSize.w, imgSize.h)} fill={color.fill} stroke={color.border} strokeWidth={`${2.5/zoomLevel}%`}/>
             )}
             {!naming && points.map((pt,i) => {
-              // Use viewport-relative sizing: 8px equivalent
-              // SVG width = imgSize.w pixels, so 8px = 8/imgSize.w * 100%
-              const pxSize = Math.max(4 / zoomLevel, 1.2)
-              const dr  = imgSize.w > 0 ? `${pxSize / imgSize.w * 100}%` : `${0.6/zoomLevel}%`
-              const dsw = imgSize.w > 0 ? `${2 / imgSize.w * 100}%` : `${0.2/zoomLevel}%`
+              const w = imgSize.w > 0 ? imgSize.w : 400
+              const centerR = `${Math.max(2/zoomLevel,0.6)/w*100}%`
+              const ringR   = `${Math.max(4.5/zoomLevel,1.2)/w*100}%`
+              const sw      = `${Math.max(1.2/zoomLevel,0.3)/w*100}%`
               return (
-                <circle key={i} cx={`${pt.x*100}%`} cy={`${pt.y*100}%`} r={dr}
-                  fill={i===0?color.border:'#fff'} stroke={i===0?'#fff':color.border} strokeWidth={dsw} opacity="1"/>
+                <g key={i}>
+                  <circle cx={`${pt.x*100}%`} cy={`${pt.y*100}%`} r={ringR}
+                    fill="none" stroke={i===0?color.border:'#fff'} strokeWidth={sw} opacity="1"/>
+                  <circle cx={`${pt.x*100}%`} cy={`${pt.y*100}%`} r={centerR}
+                    fill={i===0?color.border:'#fff'} opacity="1"/>
+                </g>
               )
             })}
           </svg>
@@ -600,15 +628,21 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
             <div style={{fontWeight:700,fontSize:14,color:'#222'}}>Name this room</div>
             <div style={{fontSize:12,color:'#888'}}>{naming.sqft.toLocaleString()} sf · {naming.perim} ft perim</div>
           </div>
-          {/* Quick-pick common room names */}
-          <div style={{display:'flex',flexWrap:'wrap',gap:6,marginBottom:10}}>
-            {['Garage','Living Room','Kitchen','Master Bedroom','Bedroom','Bathroom','Dining Room','Foyer','Hallway','Laundry','Office','Porch','Court','Utility','Pantry'].map(n=>(
-              <button key={n} onClick={()=>setCustomName(n)}
-                style={{padding:'5px 10px',background:customName===n?ORANGE:'#f0f0f0',color:customName===n?'#fff':'#444',border:`1px solid ${customName===n?ORANGE:'#ddd'}`,borderRadius:20,fontSize:12,cursor:'pointer',fontWeight:customName===n?700:400}}>
-                {n}
-              </button>
-            ))}
-          </div>
+          {/* Room name buttons — from AI scan or fallback list */}
+          {scanningNames && <div style={{fontSize:12,color:'#888',marginBottom:8}}>🔍 Loading room names from blueprint…</div>}
+          {!scanningNames && (
+            <div style={{display:'flex',flexWrap:'wrap',gap:6,marginBottom:10}}>
+              {(scannedNames && scannedNames.length > 0
+                ? scannedNames
+                : ['Garage','Living Room','Kitchen','Master Bedroom','Bedroom','Bathroom','Dining Room','Foyer','Hallway','Laundry','Office','Porch','Court','Utility','Pantry']
+              ).map(n=>(
+                <button key={n} onClick={()=>setCustomName(n)}
+                  style={{padding:'5px 10px',background:customName===n?ORANGE:'#f0f0f0',color:customName===n?'#fff':'#444',border:`1px solid ${customName===n?ORANGE:'#ddd'}`,borderRadius:20,fontSize:12,cursor:'pointer',fontWeight:customName===n?700:400}}>
+                  {n}
+                </button>
+              ))}
+            </div>
+          )}
           <input type="text" value={customName} onChange={e=>setCustomName(e.target.value)} placeholder="Or type a custom name"
             style={{width:'100%',padding:'8px 14px',fontSize:15,border:'2px solid #ddd',borderRadius:8,outline:'none',marginBottom:10,boxSizing:'border-box'}} />
           <div style={{display:'flex',gap:8}}>
