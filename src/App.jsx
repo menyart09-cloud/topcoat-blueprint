@@ -508,8 +508,8 @@ function CalibrateScreen({ image, jobName, onDone }) {
               const w = imgRef.current?.clientWidth || 400
               const h = imgRef.current?.clientHeight || 300
               // Scale arm to 0.8% of image width — works on any screen size
-              const armPct = 0.8 / zoomLevel
-              const swPct  = 0.15 / zoomLevel
+              const armPct = 1.4 / zoomLevel
+              const swPct  = 0.25 / zoomLevel
               const col = i===0 ? '#e53935' : '#1565c0'
               const cx = pt.x*100, cy = pt.y*100
               const axPct = armPct, ayPct = armPct * (w/h)
@@ -692,7 +692,7 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
               const sw  = Math.max(1.5/zoomLevel, 0.4)
               return (
                 <g key={room.id}>
-                  <polygon points={toSvgPoints(room.points, imgSize.w, imgSize.h)} fill={(room.color||ROOM_COLORS[0]).fill} stroke={(room.color||ROOM_COLORS[0]).border} strokeWidth={`${0.15/zoomLevel}%`}/>
+                  <polygon points={toSvgPoints(room.points, imgSize.w, imgSize.h)} fill={(room.color||ROOM_COLORS[0]).fill} stroke={(room.color||ROOM_COLORS[0]).border} strokeWidth={`${0.25/zoomLevel}%`}/>
                   <text x={`${c.x*100}%`} y={`${c.y*100}%`}
                     textAnchor="middle" dominantBaseline="middle" fill="#fff" fontSize={fs1} fontWeight="800"
                     style={{filter:'drop-shadow(0 1px 2px rgba(0,0,0,0.8))'}}>
@@ -710,14 +710,14 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
               <polyline points={toSvgPoints(points, imgSize.w, imgSize.h)} fill="none" stroke={color.border} strokeWidth={`${0.15/zoomLevel}%`} strokeDasharray={`${Math.max(6/zoomLevel,2)},${Math.max(3/zoomLevel,1)}`}/>
             )}
             {naming && (
-              <polygon points={toSvgPoints(points, imgSize.w, imgSize.h)} fill={color.fill} stroke={color.border} strokeWidth={`${0.15/zoomLevel}%`}/>
+              <polygon points={toSvgPoints(points, imgSize.w, imgSize.h)} fill={color.fill} stroke={color.border} strokeWidth={`${0.25/zoomLevel}%`}/>
             )}
             {!naming && points.map((pt,i) => {
               const w = imgSize.w > 0 ? imgSize.w : 400
               const h = imgSize.h > 0 ? imgSize.h : 300
               // % based so it scales with image on any screen
-              const armPct = 0.6 / zoomLevel
-              const swPct  = 0.12 / zoomLevel
+              const armPct = 1.0 / zoomLevel
+              const swPct  = 0.2 / zoomLevel
               const col = color.border
               const cx = pt.x*100, cy = pt.y*100
               const ayPct = armPct * (w/h)
