@@ -687,7 +687,7 @@ function ResultsScreen({ image, rooms, jobName, onReset, onEdit }) {
       const aspectRatio = imgH / imgW
       const cappedImgW = Math.min(imgW, maxW)
       const cappedImgH = Math.round(cappedImgW * aspectRatio)
-      const legendH = Math.round(cappedImgH * 0.80)
+      const legendH = Math.round(cappedImgH * 0.90)
       const rowH    = Math.round((legendH - 220) / Math.max(rooms.length, 1))
       const totalH  = cappedImgH + legendH
 
@@ -744,19 +744,29 @@ ctx.fillText(`${(room.sqft||0).toLocaleString()} sf`, c.x * cappedImgW, c.y * ca
       ctx.fillRect(0, cur, cappedImgW, 4)
       cur += 4
 
-      // Job name
+      // Job name — auto-shrink to fit
       cur += F * 1.4
       ctx.textAlign = 'left'
       ctx.fillStyle = '#ffffff'
-      ctx.font = `bold ${F * 1.6}px Arial`
-      ctx.fillText(jobName || 'TopCoat Tech Blueprint', pad, cur)
+      let jFont = F * 1.6
+      ctx.font = `bold ${jFont}px Arial`
+      const jText = jobName || 'TopCoat Tech Blueprint'
+      while (ctx.measureText(jText).width > cappedImgW - pad * 2 && jFont > F * 0.8) {
+        jFont -= 1; ctx.font = `bold ${jFont}px Arial`
+      }
+      ctx.fillText(jText, pad, cur)
       cur += F * 0.6
 
-      // Totals
+      // Totals — auto-shrink to fit width
       cur += F * 1.2
-      ctx.font = `${F * 1.1}px Arial`
+      const totalText = `Total: ${totalSqft.toLocaleString()} sq ft  |  ${totalPerim} ft perimeter`
+      let tFont = F * 1.1
+      ctx.font = `${tFont}px Arial`
+      while (ctx.measureText(totalText).width > cappedImgW - pad * 2 && tFont > F * 0.5) {
+        tFont -= 1; ctx.font = `${tFont}px Arial`
+      }
       ctx.fillStyle = '#e85d04'
-      ctx.fillText(`Total: ${totalSqft.toLocaleString()} sq ft  |  ${totalPerim} ft perimeter`, pad, cur)
+      ctx.fillText(totalText, pad, cur)
       cur += F * 0.4
 
       // Price line
