@@ -604,21 +604,29 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
             style={{width:'100%',display:'block',userSelect:'none'}} draggable={false}
             onLoad={()=>setImgSize({w:imgRef.current.clientWidth,h:imgRef.current.clientHeight})} />
           <svg style={{position:'absolute',inset:0,width:'100%',height:'100%',pointerEvents:'none'}}>
-            {rooms.map(room => (
-              <g key={room.id}>
-                <polygon points={toSvgPoints(room.points, imgSize.w, imgSize.h)} fill={room.color.fill} stroke={room.color.border} strokeWidth="2"/>
-                <text x={`${centroid(room.points).x*100}%`} y={`${centroid(room.points).y*100}%`}
-                  textAnchor="middle" dominantBaseline="middle" fill="#fff" fontSize="10" fontWeight="800"
-                  style={{filter:'drop-shadow(0 1px 2px rgba(0,0,0,0.8))'}}>
-                  {room.name}
-                </text>
-                <text x={`${centroid(room.points).x*100}%`} y={`${centroid(room.points).y*100}%`} dy="13"
-                  textAnchor="middle" dominantBaseline="middle" fill="rgba(255,255,255,0.9)" fontSize="9" fontWeight="600"
-                  style={{filter:'drop-shadow(0 1px 2px rgba(0,0,0,0.8))'}}>
-                  {room.sqft.toLocaleString()} sf
-                </text>
-              </g>
-            ))}
+            {rooms.map(room => {
+              const c = centroid(room.points)
+              const w = imgSize.w || 400
+              const fs1 = Math.max(10/zoomLevel, 2) / w * 100  // name font %
+              const fs2 = Math.max(8/zoomLevel, 1.5) / w * 100 // sqft font %
+              const dy2 = Math.max(12/zoomLevel, 3) / w * 100  // offset %
+              const sw  = Math.max(1.5/zoomLevel, 0.4) / w * 100
+              return (
+                <g key={room.id}>
+                  <polygon points={toSvgPoints(room.points, imgSize.w, imgSize.h)} fill={room.color.fill} stroke={room.color.border} strokeWidth={`${sw}%`}/>
+                  <text x={`${c.x*100}%`} y={`${c.y*100}%`}
+                    textAnchor="middle" dominantBaseline="middle" fill="#fff" fontSize={`${fs1}%`} fontWeight="800"
+                    style={{filter:'drop-shadow(0 1px 2px rgba(0,0,0,0.8))'}}>
+                    {room.name}
+                  </text>
+                  <text x={`${c.x*100}%`} y={`${c.y*100}%`} dy={`${dy2}%`}
+                    textAnchor="middle" dominantBaseline="middle" fill="rgba(255,255,255,0.9)" fontSize={`${fs2}%`} fontWeight="600"
+                    style={{filter:'drop-shadow(0 1px 2px rgba(0,0,0,0.8))'}}>
+                    {room.sqft.toLocaleString()} sf
+                  </text>
+                </g>
+              )
+            })}
             {points.length>=2 && (
               <polyline points={toSvgPoints(points, imgSize.w, imgSize.h)} fill="none" stroke={color.border} strokeWidth={`${2.5/zoomLevel}%`} strokeDasharray={`${6/zoomLevel},${3/zoomLevel}`}/>
             )}
