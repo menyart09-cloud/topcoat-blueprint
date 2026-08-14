@@ -507,14 +507,11 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
 
   async function closePolygon() {
     if (points.length < 3) return
-    const sqft   = Math.round(polygonAreaFt(points, fracPerFt, aspectRatio))
-    const perim  = Math.round(polygonPerimeterFt(points, fracPerFt, aspectRatio))
-    const c      = centroid(points)
-    setIdentifying(true)
-    const aiName = await identifyRoom(image.base64, image.mime, points)
-    setIdentifying(false)
-    setNaming({ sqft, perim, centroid: c, aiName, color })
-    setCustomName(aiName)
+    const sqft  = Math.round(polygonAreaFt(points, fracPerFt, aspectRatio))
+    const perim = Math.round(polygonPerimeterFt(points, fracPerFt, aspectRatio))
+    const c     = centroid(points)
+    setNaming({ sqft, perim, centroid: c, color })
+    setCustomName('') // user picks from list or types
   }
 
   function confirmRoom() {
@@ -538,7 +535,7 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
       <div style={{background: identifying ? '#ff8f00' : color.solid, padding:'7px 16px', color:'#fff', display:'flex', alignItems:'center', gap:8, flexShrink:0}}>
         {jobName && <span style={{fontSize:11,opacity:0.8,flexShrink:0}}>{jobName} ·</span>}
         <span style={{fontWeight:700,fontSize:12}}>
-          {identifying ? '🤖 AI identifying…' : naming ? `✓ ${naming.sqft.toLocaleString()} sf · ${naming.perim}ft — name it below` : points.length===0 ? `Room ${rooms.length+1} — tap corners to trace` : points.length>=3 ? `${points.length} pts · tap near ⭕ to close` : `${points.length} pts · keep tapping corners`}
+          {naming ? `✓ ${naming.sqft.toLocaleString()} sf · ${naming.perim}ft — pick a name below` : points.length===0 ? `Room ${rooms.length+1} — tap corners to trace` : points.length>=3 ? `${points.length} pts · tap near ⭕ to close` : `${points.length} pts · keep tapping corners`}
         </span>
       </div>
 
@@ -580,14 +577,26 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
 
       {/* Naming panel */}
       {naming && (
-        <div style={{padding:'14px 16px',background:'#fff',borderTop:'2px solid #e8e8e8'}}>
-          <div style={{fontWeight:700,fontSize:14,color:'#222',marginBottom:4}}>Name this room</div>
-          <div style={{fontSize:12,color:'#888',marginBottom:10}}>AI: <strong>{naming.aiName}</strong> · {naming.sqft.toLocaleString()} sq ft · {naming.perim} ft perimeter</div>
-          <input type="text" value={customName} onChange={e=>setCustomName(e.target.value)} placeholder="Room name"
-            style={{width:'100%',padding:'10px 14px',fontSize:16,border:'2px solid #ddd',borderRadius:8,outline:'none',marginBottom:10,boxSizing:'border-box'}} autoFocus />
+        <div style={{padding:'12px 16px',background:'#fff',borderTop:'2px solid #e8e8e8'}}>
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8}}>
+            <div style={{fontWeight:700,fontSize:14,color:'#222'}}>Name this room</div>
+            <div style={{fontSize:12,color:'#888'}}>{naming.sqft.toLocaleString()} sf · {naming.perim} ft perim</div>
+          </div>
+          {/* Quick-pick common room names */}
+          <div style={{display:'flex',flexWrap:'wrap',gap:6,marginBottom:10}}>
+            {['Garage','Living Room','Kitchen','Master Bedroom','Bedroom','Bathroom','Dining Room','Foyer','Hallway','Laundry','Office','Porch','Court','Utility','Pantry'].map(n=>(
+              <button key={n} onClick={()=>setCustomName(n)}
+                style={{padding:'5px 10px',background:customName===n?ORANGE:'#f0f0f0',color:customName===n?'#fff':'#444',border:`1px solid ${customName===n?ORANGE:'#ddd'}`,borderRadius:20,fontSize:12,cursor:'pointer',fontWeight:customName===n?700:400}}>
+                {n}
+              </button>
+            ))}
+          </div>
+          <input type="text" value={customName} onChange={e=>setCustomName(e.target.value)} placeholder="Or type a custom name"
+            style={{width:'100%',padding:'8px 14px',fontSize:15,border:'2px solid #ddd',borderRadius:8,outline:'none',marginBottom:10,boxSizing:'border-box'}} />
           <div style={{display:'flex',gap:8}}>
-            <button onClick={confirmRoom} style={{flex:2,padding:'12px',background:ORANGE,color:'#fff',border:'none',borderRadius:8,fontSize:15,fontWeight:700,cursor:'pointer'}}>✓ Add Room</button>
-            <button onClick={cancelRoom} style={{flex:1,padding:'12px',background:'transparent',border:'1px solid #ddd',borderRadius:8,fontSize:14,color:'#888',cursor:'pointer'}}>Cancel</button>
+            <button onClick={confirmRoom} disabled={!customName.trim()}
+              style={{flex:2,padding:'11px',background:customName.trim()?ORANGE:'#ccc',color:'#fff',border:'none',borderRadius:8,fontSize:15,fontWeight:700,cursor:customName.trim()?'pointer':'not-allowed'}}>✓ Add Room</button>
+            <button onClick={cancelRoom} style={{flex:1,padding:'11px',background:'transparent',border:'1px solid #ddd',borderRadius:8,fontSize:14,color:'#888',cursor:'pointer'}}>Cancel</button>
           </div>
         </div>
       )}
@@ -678,7 +687,7 @@ function ResultsScreen({ image, rooms, jobName, onReset, onEdit }) {
       const aspectRatio = imgH / imgW
       const cappedImgW = Math.min(imgW, maxW)
       const cappedImgH = Math.round(cappedImgW * aspectRatio)
-      const legendH = Math.round(cappedImgH * 0.75)
+      const legendH = Math.round(cappedImgH * 0.80)
       const rowH    = Math.round((legendH - 220) / Math.max(rooms.length, 1))
       const totalH  = cappedImgH + legendH
 
