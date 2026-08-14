@@ -764,21 +764,27 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
             {!naming && points.map((pt,i) => {
               const w = imgSize.w > 0 ? imgSize.w : 400
               const h = imgSize.h > 0 ? imgSize.h : 300
-              // Target ~14px arm / ~2.5px stroke (comfortable on mobile)
-              const armX = (14 / zoomLevel / w) * 100
-              const armY = (14 / zoomLevel / h) * 100
-              const sw   = (2.5 / zoomLevel / w) * 100
+              // Longer arms (~18px) + small center so the crosshair is obvious
+              const armX = (18 / zoomLevel / w) * 100
+              const armY = (18 / zoomLevel / h) * 100
+              const sw   = (2.8 / zoomLevel / w) * 100
               const col  = color.border
               const cx = pt.x*100, cy = pt.y*100
               const isFirst = i === 0
               return (
                 <g key={i}>
-                  <line x1={`${cx-armX}%`} y1={`${cy}%`} x2={`${cx+armX}%`} y2={`${cy}%`} stroke="#fff" strokeWidth={`${sw*2.5}%`}/>
-                  <line x1={`${cx}%`} y1={`${cy-armY}%`} x2={`${cx}%`} y2={`${cy+armY}%`} stroke="#fff" strokeWidth={`${sw*2.5}%`}/>
+                  {/* white outline */}
+                  <line x1={`${cx-armX}%`} y1={`${cy}%`} x2={`${cx+armX}%`} y2={`${cy}%`} stroke="#fff" strokeWidth={`${sw*2.8}%`}/>
+                  <line x1={`${cx}%`} y1={`${cy-armY}%`} x2={`${cx}%`} y2={`${cy+armY}%`} stroke="#fff" strokeWidth={`${sw*2.8}%`}/>
+                  {/* colored cross */}
                   <line x1={`${cx-armX}%`} y1={`${cy}%`} x2={`${cx+armX}%`} y2={`${cy}%`} stroke={col} strokeWidth={`${sw}%`}/>
                   <line x1={`${cx}%`} y1={`${cy-armY}%`} x2={`${cx}%`} y2={`${cy+armY}%`} stroke={col} strokeWidth={`${sw}%`}/>
-                  <circle cx={`${cx}%`} cy={`${cy}%`} r={`${Math.max(3.5/zoomLevel/w*100, 0.4)}%`} fill={col} stroke="#fff" strokeWidth={`${sw*0.6}%`}/>
-                  {isFirst && <circle cx={`${cx}%`} cy={`${cy}%`} r={`${armX*1.3}%`} fill="none" stroke={col} strokeWidth={`${sw*0.7}%`} strokeDasharray={`${armX}%,${armX*0.5}%`}/>}
+                  {/* small center dot */}
+                  <circle cx={`${cx}%`} cy={`${cy}%`} r={`${Math.max(2.2/zoomLevel/w*100, 0.25)}%`} fill={col} stroke="#fff" strokeWidth={`${sw*0.5}%`}/>
+                  {isFirst && (
+                    <circle cx={`${cx}%`} cy={`${cy}%`} r={`${armX*1.35}%`} fill="none" stroke={col}
+                      strokeWidth={`${sw*0.6}%`} strokeDasharray={`${armX*0.9}%,${armX*0.45}%`}/>
+                  )}
                 </g>
               )
             })}
