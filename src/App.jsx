@@ -719,7 +719,7 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
         <div style={{padding:'12px 16px',background:'#fff',borderTop:'2px solid #e8e8e8'}}>
           <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8}}>
             <div style={{fontWeight:700,fontSize:14,color:'#222'}}>Name this room</div>
-            <div style={{fontSize:12,color:'#888'}}>{naming.sqft.toLocaleString()} sf · {naming.perim} ft perim</div>
+            <div style={{fontSize:12,color:'#888'}}>{(naming.sqft||0).toLocaleString()} sf · {naming.perim||0} ft perim</div>
           </div>
           {/* Room name buttons — from AI scan or fallback list */}
           {scanningNames && <div style={{fontSize:12,color:'#888',marginBottom:8}}>🔍 Loading room names from blueprint…</div>}
@@ -728,8 +728,8 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
               {(scannedNames && scannedNames.length > 0
                 ? scannedNames
                 : ['Garage','Living Room','Kitchen','Master Bedroom','Bedroom','Bathroom','Dining Room','Foyer','Hallway','Laundry','Office','Porch','Court','Utility','Pantry']
-              ).map(n=>(
-                <button key={n} onClick={()=>setCustomName(n)}
+              ).map((n,idx)=>(
+                <button key={idx+'-'+n} onClick={()=>setCustomName(n)}
                   style={{padding:'5px 10px',background:customName===n?ORANGE:'#f0f0f0',color:customName===n?'#fff':'#444',border:`1px solid ${customName===n?ORANGE:'#ddd'}`,borderRadius:20,fontSize:12,cursor:'pointer',fontWeight:customName===n?700:400}}>
                   {n}
                 </button>
