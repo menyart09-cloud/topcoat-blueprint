@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from 'react'
+import React, { useState, useRef, useCallback, useEffect } from 'react'
 
 const ORANGE = '#e85d04'
 const DARK   = '#1c1c2e'
@@ -1089,6 +1089,19 @@ ctx.fillText(`${(room.sqft||0).toLocaleString()} sf`, c.x * cappedImgW, c.y * ca
 }
 
 // ── Main App ──────────────────────────────────────────────────
+class ErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { error: null } }
+  static getDerivedStateFromError(err) { return { error: err.message } }
+  render() {
+    if (this.state.error) return (
+      <div style={{padding:20,background:'#fdecea',color:'#c62828',fontFamily:'monospace',fontSize:13,wordBreak:'break-all'}}>
+        <strong>Crash:</strong> {this.state.error}
+      </div>
+    )
+    return this.props.children
+  }
+}
+
 export default function App() {
   const [screen,      setScreen]      = useState('upload')
   const [image,       setImage]       = useState(null)
@@ -1125,6 +1138,7 @@ export default function App() {
   }
 
   return (
+    <ErrorBoundary>
     <div style={{ minHeight:'100vh', background:'#f4f4f2' }}>
       <style>{`@keyframes spin{to{transform:rotate(360deg)}} .fade-in{animation:fadeIn 0.3s ease forwards} @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}`}</style>
       <Header screen={screen} onBack={handleBack} onReset={reset} />
@@ -1134,5 +1148,6 @@ export default function App() {
       {screen==='results'   && <ResultsScreen   image={image} rooms={rooms} jobName={jobName} onReset={reset} onEdit={()=>setScreen('draw')} />}
       <div style={{textAlign:'center',padding:'12px',color:'#bbb',fontSize:11}}>TopCoat Tech · Blueprint Analyzer</div>
     </div>
+    </ErrorBoundary>
   )
 }
