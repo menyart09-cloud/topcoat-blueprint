@@ -707,53 +707,66 @@ ctx.fillText(`${(room.sqft||0).toLocaleString()} sf`, c.x * cappedImgW, c.y * ca
       const pad = 20
       const fSize = Math.round(legendH / (rooms.length * 3.5 + 5)) // fits text within legend area
 
-      // Legend background already covered by fillRect above
-      // Divider line
+      // ── Legend with cursor-based exact positioning ──────────
+      const F = fSize
+      let cur = ly
+
+      // Orange divider
       ctx.fillStyle = ORANGE
-      ctx.fillRect(0, ly, imgW, 4)
+      ctx.fillRect(0, cur, cappedImgW, 4)
+      cur += 4
 
       // Job name
+      cur += F * 1.4
       ctx.textAlign = 'left'
       ctx.fillStyle = '#ffffff'
-      ctx.font = `bold ${fSize * 1.6}px Arial`
-      ctx.fillText(jobName || 'TopCoat Tech Blueprint', pad, ly + fSize * 1.8)
+      ctx.font = `bold ${F * 1.6}px Arial`
+      ctx.fillText(jobName || 'TopCoat Tech Blueprint', pad, cur)
+      cur += F * 0.6
 
       // Totals
-      ctx.font = `${fSize * 1.1}px Arial`
+      cur += F * 1.2
+      ctx.font = `${F * 1.1}px Arial`
       ctx.fillStyle = '#e85d04'
-      ctx.fillText(`Total: ${totalSqft.toLocaleString()} sq ft  |  ${totalPerim} ft perimeter`, pad, ly + fSize * 3.2)
+      ctx.fillText(`Total: ${totalSqft.toLocaleString()} sq ft  |  ${totalPerim} ft perimeter`, pad, cur)
+      cur += F * 0.4
+
+      // Price line
       if (totalPrice) {
-        ctx.font = `bold ${fSize * 1.3}px Arial`
+        cur += F * 1.4
+        ctx.font = `bold ${F * 1.3}px Arial`
         ctx.fillStyle = '#4caf50'
-        ctx.fillText(`Job Total: $${parseFloat(totalPrice).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}  ($${parseFloat(pricePerSqft).toFixed(2)}/sf)`, pad, ly + fSize * 5.0)
+        ctx.fillText(`Job Total: $${parseFloat(totalPrice).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}  ($${parseFloat(pricePerSqft).toFixed(2)}/sf)`, pad, cur)
+        cur += F * 0.4
       }
 
       // Divider
+      cur += F * 0.8
       ctx.fillStyle = '#333'
-      ctx.fillRect(pad, ly + fSize * 3.8, cappedImgW - pad*2, 1)
+      ctx.fillRect(pad, cur, cappedImgW - pad * 2, 1)
+      cur += F * 0.6
 
       // Room rows
+      const swatchSize = F * 1.4
+      const roomRowH = F * 2.4
       rooms.forEach((room, i) => {
-        const ry = ly + fSize * 6.2 + i * rowH
-        const swatchSize = fSize * 1.4
-        // Color swatch
+        const ry = cur + i * roomRowH
         ctx.fillStyle = room.color?.border || '#e53935'
         ctx.fillRect(pad, ry, swatchSize, swatchSize)
-        // Room name
         ctx.fillStyle = '#ffffff'
-        ctx.font = `bold ${fSize * 1.1}px Arial`
+        ctx.font = `bold ${F * 1.1}px Arial`
         ctx.fillText(room.name || 'Room', pad + swatchSize + 12, ry + swatchSize * 0.65)
-        // Room stats
-        ctx.font = `${fSize * 0.9}px Arial`
+        ctx.font = `${F * 0.9}px Arial`
         ctx.fillStyle = '#aaaaaa'
-        ctx.fillText(`${(room.sqft||0).toLocaleString()} sq ft  ·  ${room.perim||0} ft perimeter`, pad + swatchSize + 12, ry + swatchSize * 1.3)
+        ctx.fillText(`${(room.sqft||0).toLocaleString()} sq ft  ·  ${room.perim||0} ft perimeter`, pad + swatchSize + 12, ry + swatchSize * 1.35)
       })
+      cur += rooms.length * roomRowH + F * 1.2
 
-      // TopCoat footer
-      ctx.font = `${fSize * 0.8}px Arial`
+      // Footer — always at bottom of canvas
+      ctx.font = `${F * 0.75}px Arial`
       ctx.fillStyle = '#555'
       ctx.textAlign = 'center'
-      ctx.fillText('TopCoat Tech · Blueprint Analyzer', cappedImgW / 2, totalH - fSize * 0.4)
+      ctx.fillText('TopCoat Tech · Blueprint Analyzer', cappedImgW / 2, totalH - F * 0.5)
 
       await saveToPhotos(canvas, jobName || 'TopCoat-Blueprint')
       setSaved(true)
