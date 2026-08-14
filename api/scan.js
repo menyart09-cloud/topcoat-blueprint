@@ -4,7 +4,6 @@ export default async function handler(req, res) {
   if (!base64 || !mime) return res.status(400).json({ error: 'Missing image data' })
   if (base64.length > 6_000_000) return res.status(413).json({ error: 'Image too large. Use a photo under 4MB.' })
 
-  // Mode: identify — name the room at a given polygon location
   if (mode === 'identify' && customPrompt) {
     try {
       const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -16,7 +15,7 @@ export default async function handler(req, res) {
         },
         body: JSON.stringify({
           model: 'claude-sonnet-4-6',
-          max_tokens: 200,
+          max_tokens: 500,
           messages: [{ role: 'user', content: [
             { type: 'image', source: { type: 'base64', media_type: mime, data: base64 } },
             { type: 'text', text: customPrompt }
@@ -24,36 +23,41 @@ export default async function handler(req, res) {
         })
       })
       const data = await response.json()
-      if (!response.ok) return res.status(200).json({ name: 'Room', confidence: 'low' })
+      if (!response.ok) return res.status(200).json({ name: 'Room' })
       
       const raw = (data.content || []).map(b => b.text || '').join('').trim()
       
-      // Try JSON parse first
+      // Check if response is a JSON array (room names scan)
+      const arrayMatch = raw.match(/\[[\s\S]*\]/)
+      if (arrayMatch) {
+        try {
+          const arr = JSON.parse(arrayMatch[0])
+          if (Array.isArray(arr)) return res.status(200).json(arr)
+        } catch(e) {}
+      }
+      
+      // Single room name identification
       const jsonMatch = raw.match(/\{[\s\S]*\}/)
       if (jsonMatch) {
         try {
           const parsed = JSON.parse(jsonMatch[0])
-          if (parsed.name && parsed.name !== 'Room') return res.status(200).json(parsed)
+          if (parsed.name) return res.status(200).json(parsed)
         } catch(e) {}
       }
       
-      // Try extracting name from "name": "value" pattern
       const nameMatch = raw.match(/"name"\s*:\s*"([^"]+)"/)
-      if (nameMatch && nameMatch[1]) return res.status(200).json({ name: nameMatch[1], confidence: 'medium' })
+      if (nameMatch) return res.status(200).json({ name: nameMatch[1] })
       
-      // If AI returned just a plain room name (no JSON), use it directly
-      const cleaned = raw.replace(/```json|```|\{|\}|"name"\s*:/gi, '').replace(/"/g, '').trim()
-      if (cleaned.length > 0 && cleaned.length < 60 && !cleaned.includes('{') && !cleaned.includes(':')) {
-        return res.status(200).json({ name: cleaned, confidence: 'medium' })
-      }
+      const cleaned = raw.replace(/[{}"]/g, '').replace(/name\s*:/i, '').trim()
+      if (cleaned.length > 0 && cleaned.length < 60) return res.status(200).json({ name: cleaned })
       
-      return res.status(200).json({ name: 'Room', confidence: 'low' })
+      return res.status(200).json({ name: 'Room' })
     } catch (err) {
-      return res.status(200).json({ name: 'Room', confidence: 'low' })
+      return res.status(200).json({ name: 'Room' })
     }
   }
 
-  // Default mode: full scan
+  // Default: full blueprint scan
   const prompt = `You are a professional blueprint measurement expert. Carefully examine this floor plan image.
 
 Your job: identify every room/space and read their EXACT dimensions from the printed labels on the blueprint.
