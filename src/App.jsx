@@ -232,11 +232,7 @@ function Header({ screen, onBack, onReset }) {
       {showBack && (
         <button onClick={onBack} style={{ background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: 6, padding: '5px 8px', color: '#fff', fontSize: 16, cursor: 'pointer', flexShrink: 0, lineHeight: 1 }}>←</button>
       )}
-      <div style={{ width: 28, height: 28, background: ORANGE, borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-          <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9M15 21V9"/>
-        </svg>
-      </div>
+      <img src="/icon-512.png" alt="TopCoat" style={{ width: 28, height: 28, borderRadius: 6, flexShrink: 0, objectFit: 'cover' }} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ color: '#fff', fontWeight: 700, fontSize: 13, lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>TopCoat Tech Blueprint Analyzer</div>
         <div style={{ color: '#888', fontSize: 10 }}>Draw room overlays · AI calculates sq footage</div>
