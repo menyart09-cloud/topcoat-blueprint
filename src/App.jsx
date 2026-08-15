@@ -756,7 +756,9 @@ function StraightenScreen({ image, jobName, onDone, onSkip }) {
         <span style={{color:'#fff',fontWeight:600,fontSize:14}}>🔄 STRAIGHTEN — tap 2 points on a line that should be level · Pinch to zoom</span>
       </div>
 
-      <ZoomableBlueprint onTap={handleTap} style={{flex:1,minHeight:0,maxHeight:'60vh'}} onZoomChange={setZoomLevel}>
+      <div className="editor-body">
+      <div className="editor-canvas-wrap">
+      <ZoomableBlueprint onTap={handleTap} style={{flex:1,minHeight:0,height:'100%'}} onZoomChange={setZoomLevel}>
         <div style={{position:'relative'}}>
           <img ref={imgRef} src={image.src} alt="Blueprint"
             style={{width:'100%',display:'block',userSelect:'none'}} draggable={false} />
@@ -792,8 +794,9 @@ function StraightenScreen({ image, jobName, onDone, onSkip }) {
           </svg>
         </div>
       </ZoomableBlueprint>
+      </div>
 
-      <div style={{padding:'10px 12px',background:'#f4f4f2',borderTop:'1px solid #e0e0e0',flexShrink:0}}>
+      <div className="editor-controls" style={{padding:'10px 12px',background:'#f4f4f2',borderTop:'1px solid #e0e0e0',flexShrink:0}}>
         <div style={{display:'flex',gap:6,marginBottom:8}}>
           <div style={{flex:1,padding:'6px 8px',background:points.length>=1?'#f3e5f5':'#fff',border:`1px solid ${points.length>=1?'#ce93d8':'#ddd'}`,borderRadius:6,textAlign:'center',fontSize:12,fontWeight:600,color:points.length>=1?'#6a1b9a':'#999'}}>
             {points.length>=1?'✓ Point 1 set':'Tap point 1'}
@@ -827,6 +830,7 @@ function StraightenScreen({ image, jobName, onDone, onSkip }) {
             {working ? 'Straightening…' : 'Straighten & Continue →'}
           </button>
         </div>
+      </div>
       </div>
     </div>
   )
@@ -882,7 +886,9 @@ function CalibrateScreen({ image, jobName, onDone }) {
       </div>
 
       {/* Zoomable blueprint - max height */}
-      <ZoomableBlueprint onTap={handleTap} style={{flex:1,minHeight:0,maxHeight:'60vh'}} onZoomChange={setZoomLevel}>
+      <div className="editor-body">
+      <div className="editor-canvas-wrap">
+      <ZoomableBlueprint onTap={handleTap} style={{flex:1,minHeight:0,height:'100%'}} onZoomChange={setZoomLevel}>
         <div style={{position:'relative'}}>
           <img ref={imgRef} src={image.src} alt="Blueprint"
             style={{width:'100%',display:'block',userSelect:'none'}} draggable={false} />
@@ -912,9 +918,10 @@ function CalibrateScreen({ image, jobName, onDone }) {
           </svg>
         </div>
       </ZoomableBlueprint>
+      </div>
 
       {/* Compact controls strip */}
-      <div style={{padding:'10px 12px',background:'#f4f4f2',borderTop:'1px solid #e0e0e0',flexShrink:0}}>
+      <div className="editor-controls" style={{padding:'10px 12px',background:'#f4f4f2',borderTop:'1px solid #e0e0e0',flexShrink:0}}>
         {/* Status row */}
         <div style={{display:'flex',gap:6,marginBottom:8}}>
           <div style={{flex:1,padding:'6px 8px',background:points.length>=1?'#e8f5e9':'#fff',border:`1px solid ${points.length>=1?'#a5d6a7':'#ddd'}`,borderRadius:6,textAlign:'center',fontSize:12,fontWeight:600,color:points.length>=1?'#2e7d32':'#999'}}>
@@ -947,6 +954,7 @@ function CalibrateScreen({ image, jobName, onDone }) {
           style={{width:'100%',padding:'11px',background:canGo?ORANGE:'#ccc',color:'#fff',border:'none',borderRadius:10,fontSize:14,fontWeight:700,cursor:canGo?'pointer':'not-allowed',boxShadow:canGo?'0 4px 14px rgba(0,119,182,0.35)':'none'}}>
           Continue — Draw Overlays →
         </button>
+      </div>
       </div>
     </div>
   )
@@ -1164,7 +1172,9 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
       </div>
 
       {/* Zoomable pinch-to-zoom drawing area - fills all available space */}
-      <ZoomableBlueprint ref={blueprintCtrlRef} onTap={e=>{if(!naming&&!identifying)handleTap(e)}} style={{flex:1,maxHeight:'none',minHeight:0}} onZoomChange={setZoomLevel}>
+      <div className="editor-body">
+      <div className="editor-canvas-wrap" style={{maxHeight:'none'}}>
+      <ZoomableBlueprint ref={blueprintCtrlRef} onTap={e=>{if(!naming&&!identifying)handleTap(e)}} style={{flex:1,maxHeight:'none',minHeight:0,height:'100%'}} onZoomChange={setZoomLevel}>
         <div style={{position:'relative'}}>
           <img ref={imgRef} src={image.src} alt="Blueprint"
             style={{width:'100%',display:'block',userSelect:'none'}} draggable={false}
@@ -1250,7 +1260,9 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
           </svg>
         </div>
       </ZoomableBlueprint>
+      </div>
 
+      <div className="editor-controls">
       {/* Naming panel */}
       {naming && (
         <div style={{padding:'12px 16px',background:'#fff',borderTop:'2px solid #e8e8e8'}}>
@@ -1365,6 +1377,8 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
           </div>
         </div>
       )}
+      </div>
+      </div>
     </div>
   )
 }
@@ -1835,12 +1849,23 @@ export default function App() {
     setJobName(''); setPdfPicker(null)
   }
 
+  const isEditorScreen = screen === 'straighten' || screen === 'calibrate' || screen === 'draw'
+
   return (
     <ErrorBoundary>
     <div style={{ minHeight:'100vh', background:'#dcdcdc' }}>
-      {/* Caps content to a phone-like column on wide screens (desktop testing).
-          On real mobile viewports this has no effect — width just fills 100%. */}
-      <div style={{ maxWidth:480, margin:'0 auto', minHeight:'100vh', background:'#f4f4f2', boxShadow:'0 0 50px rgba(0,0,0,0.12)' }}>
+      {/* Editor screens (Straighten/Calibrate/Draw) get a wide desktop layout
+          with a real canvas+sidebar split (see .editor-body in index.css).
+          Other screens stay a centered phone-width column on wide screens —
+          simple stacked content doesn't need the extra width. Mobile viewports
+          are unaffected either way since they're already narrower than either cap. */}
+      <div style={{
+        maxWidth: isEditorScreen ? 1400 : 480,
+        margin:'0 auto',
+        minHeight:'100vh',
+        background:'#f4f4f2',
+        boxShadow: isEditorScreen ? 'none' : '0 0 50px rgba(0,0,0,0.12)'
+      }}>
       <style>{`@keyframes spin{to{transform:rotate(360deg)}} .fade-in{animation:fadeIn 0.3s ease forwards} @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}`}</style>
       <Header screen={screen} onBack={handleBack} onReset={reset} />
       {screen==='upload'    && <UploadScreen    onFile={handleFile} error={error} converting={converting} jobName={jobName} setJobName={setJobName} />}
