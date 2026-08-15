@@ -28,3 +28,39 @@ img { display: block; }
 .fade-in {
   animation: fadeIn 0.3s ease forwards;
 }
+
+/* ── Editor screens (Straighten / Calibrate / Draw) ──────────────
+   Mobile: canvas on top (capped height), controls stacked below.
+   Desktop (>=860px): canvas fills the left side, controls become
+   a fixed-width scrollable sidebar on the right. */
+.editor-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.editor-canvas-wrap {
+  flex: 1;
+  min-height: 0;
+  max-height: 60vh;
+}
+.editor-controls {
+  flex-shrink: 0;
+}
+
+@media (min-width: 860px) {
+  .editor-body {
+    flex-direction: row;
+  }
+  .editor-canvas-wrap {
+    max-height: none;
+    height: 100%;
+  }
+  .editor-controls {
+    width: 400px;
+    max-width: 400px;
+    height: 100%;
+    overflow-y: auto;
+    border-left: 1px solid #e0e0e0;
+  }
+}
