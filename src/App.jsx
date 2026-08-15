@@ -148,16 +148,19 @@ Respond ONLY with this JSON (no markdown, no explanation):
 }
 
 // ── Scan blueprint for all room names ────────────────────────
-async function scanRoomNames(base64, mime) {
-  const prompt = `Look carefully at this blueprint floor plan image. 
-Find and list ALL room names, space labels, and area names printed on it.
-Include every labeled space you can see: any text that identifies a room or area.
+async function scanRoomNames(base64, mime, polygonCenter) {
+  const centerHint = polygonCenter
+    ? `\n\nIMPORTANT: A room was just traced at image position (${(polygonCenter.x*100).toFixed(1)}%, ${(polygonCenter.y*100).toFixed(1)}%). Put the room name at that location FIRST in the array.`
+    : ''
 
-Respond ONLY with a JSON array of strings — room names only, no numbers, no extra text:
-["Lobby", "Office", "Kitchen", "Master Bedroom", "Garage"]`
+  const prompt = `Look carefully at this blueprint floor plan image.
+Find and list ALL room names, space labels, and area names printed on it.
+Include every labeled space you can see.${centerHint}
+
+Respond ONLY with a JSON array of strings — room names only:
+["Most Likely Room", "Other Room", "Another Room"]`
 
   try {
-    // Compress image to smaller size before sending — room names are large text, readable at lower res
     const smallBase64 = await compressImage(base64, mime, 0.5)
     const res = await fetch('/api/scan', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -674,7 +677,8 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
     // Scan for room names if we haven't yet
     if (scannedNames === null && !scanningNames) {
       setScanningNames(true)
-      const names = await scanRoomNames(image.base64, image.mime)
+      const polyCenter = centroid(points)
+      const names = await scanRoomNames(image.base64, image.mime, polyCenter)
       setScannedNames(names && names.length > 0 ? names : [])
       setScanningNames(false)
     }
