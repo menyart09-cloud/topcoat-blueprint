@@ -1104,12 +1104,32 @@ function ResultsScreen({ image, rooms, jobName, onReset, onEdit }) {
       const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
       const scale   = isMobile ? 1 : 2
 
+      // ── Compute crop region from room bounding box (fractions of full image) ─
+      let minX = 1, minY = 1, maxX = 0, maxY = 0
+      rooms.forEach(room => {
+        room.points.forEach(pt => {
+          if (pt.x < minX) minX = pt.x
+          if (pt.y < minY) minY = pt.y
+          if (pt.x > maxX) maxX = pt.x
+          if (pt.y > maxY) maxY = pt.y
+        })
+      })
+      const margin = 0.07
+      const cropX1 = Math.max(0, minX - margin)
+      const cropY1 = Math.max(0, minY - margin)
+      const cropX2 = Math.min(1, maxX + margin)
+      const cropY2 = Math.min(1, maxY + margin)
+
       // Legend sizing — each room gets a row
       // Legend sized to ~35% of image height, rows fit within that
-      // Cap to iOS canvas limits while preserving aspect ratio
+      // Cap to iOS canvas limits — aspect ratio comes from the CROPPED
+      // region, not the full blueprint, or the crop gets stretched/squashed
+      // to fit the wrong-shaped box.
       const maxW = 3800
-      const aspectRatio = imgH / imgW
-      const cappedImgW = Math.min(imgW, maxW)
+      const cropWpx = (cropX2 - cropX1) * imgW
+      const cropHpx = (cropY2 - cropY1) * imgH
+      const aspectRatio = cropHpx / cropWpx
+      const cappedImgW = Math.min(cropWpx, maxW)
       const cappedImgH = Math.round(cappedImgW * aspectRatio)
       // Calculate exact legend height — generous padding so nothing gets cut off
       const F_est = Math.min(Math.max(Math.round(cappedImgW / 30), 16), 40)
@@ -1136,21 +1156,6 @@ function ResultsScreen({ image, rooms, jobName, onReset, onEdit }) {
       ctx.fillStyle = '#1c1c2e'
       ctx.fillRect(0, 0, cappedImgW, totalH)
 
-      // ── Compute crop region from room bounding box ────────────
-      let minX = 1, minY = 1, maxX = 0, maxY = 0
-      rooms.forEach(room => {
-        room.points.forEach(pt => {
-          if (pt.x < minX) minX = pt.x
-          if (pt.y < minY) minY = pt.y
-          if (pt.x > maxX) maxX = pt.x
-          if (pt.y > maxY) maxY = pt.y
-        })
-      })
-      const margin = 0.07
-      const cropX1 = Math.max(0, minX - margin)
-      const cropY1 = Math.max(0, minY - margin)
-      const cropX2 = Math.min(1, maxX + margin)
-      const cropY2 = Math.min(1, maxY + margin)
       // Helper: fraction coords → cropped canvas pixels
       const toCanvasX = fx => ((fx - cropX1) / (cropX2 - cropX1)) * cappedImgW
       const toCanvasY = fy => ((fy - cropY1) / (cropY2 - cropY1)) * cappedImgH
