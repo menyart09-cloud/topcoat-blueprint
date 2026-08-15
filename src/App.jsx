@@ -917,7 +917,7 @@ function ResultsScreen({ image, rooms, jobName, onReset, onEdit }) {
         F_est * 2.0 +                                                    // top pad
         F_est * 2.0 +                                                    // job name
         F_est * 2.0 +                                                    // totals
-        (totalPrice ? F_est * 2.5 : 0) +                                 // price line
+        (hasAnyPrice ? F_est * 2.5 : 0) +                                 // price line
         F_est * 1.5 +                                                    // divider
         Math.ceil(rooms.length / 2) * F_est * 3.2 +                      // room rows 2-col (generous)
         F_est * 3.0                                                      // footer + bottom pad
