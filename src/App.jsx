@@ -3,6 +3,9 @@ import React, { useState, useRef, useCallback, useEffect } from 'react'
 const ORANGE = '#0077B6'
 const DARK   = '#1c1c2e'
 
+// Quick-pick coating types for the Results screen — anything else can be typed in
+const COATING_TYPES = ['Epoxy', 'Concrete Overlay', 'Granite Overlay', 'Rubber Playground', 'Rock Carpet']
+
 const ROOM_COLORS = [
   { fill: 'rgba(255,80,80,0.35)',   border: '#e53935', solid: '#e53935' },
   { fill: 'rgba(33,150,243,0.35)',  border: '#1565c0', solid: '#1565c0' },
@@ -79,6 +82,9 @@ function centroid(points) {
 function toSvgPoints(points, w, h) {
   return points.map(p => `${p.x*w},${p.y*h}`).join(' ')
 }
+
+// ── Clamp a fractional image coordinate to [0,1] ────────────────
+function clamp01(v) { return Math.min(1, Math.max(0, v)) }
 
 // ── PDF to high-res image ─────────────────────────────────────
 // ── Ensure pdf.js library is loaded (shared by all PDF rendering) ─
@@ -428,13 +434,39 @@ function UploadScreen({ onFile, error, converting, jobName, setJobName }) {
 }
 
 // ── ZoomableBlueprint ─────────────────────────────────────────
-// Handles pinch-to-zoom + pan on mobile, Ctrl+wheel zoom + drag-pan on desktop
-function ZoomableBlueprint({ onTap, children, style, onZoomChange }) {
+// Handles pinch-to-zoom + pan on mobile, Ctrl+wheel zoom + drag-pan on desktop.
+// Exposes centerOn(xAtZoom1, yAtZoom1, targetZoom) via ref for programmatic
+// centering (used by Move Corner to auto-center/zoom on a selected corner).
+const ZoomableBlueprint = React.forwardRef(function ZoomableBlueprint({ onTap, children, style, onZoomChange }, ref) {
   const containerRef = useRef()
   const lastTouchRef = useRef(null)
   const pinchRef     = useRef(null)
   const [zoom, setZoom] = useState(1)
   const zoomRef = useRef(1)
+  const pendingCenterRef = useRef(null)
+
+  React.useImperativeHandle(ref, () => ({
+    centerOn(xAtZoom1, yAtZoom1, targetZoom) {
+      const z = Math.min(Math.max(targetZoom, 1), 12)
+      pendingCenterRef.current = { x: xAtZoom1, y: yAtZoom1, z }
+      zoomRef.current = z
+      setZoom(z)
+      onZoomChange && onZoomChange(z)
+    }
+  }))
+
+  // Apply the pending scroll position once the DOM has re-rendered at the new zoom
+  useEffect(() => {
+    if (!pendingCenterRef.current) return
+    const { x, y, z } = pendingCenterRef.current
+    if (z !== zoom) return
+    const container = containerRef.current
+    if (container) {
+      container.scrollLeft = x * z - container.clientWidth / 2
+      container.scrollTop  = y * z - container.clientHeight / 2
+    }
+    pendingCenterRef.current = null
+  }, [zoom])
 
   // Desktop drag-to-pan state
   const isDragging = useRef(false)
@@ -597,7 +629,7 @@ function ZoomableBlueprint({ onTap, children, style, onZoomChange }) {
       </div>
     </div>
   )
-}
+})
 
 // ── PDF Page Picker ────────────────────────────────────────────
 // Shown only for multi-page PDFs. Scroll the list, tap a page to
@@ -627,9 +659,9 @@ function PdfPageScreen({ thumbnails, buffer, pdfName, pdfSize, jobName, onImport
 
   return (
     <div style={{ display:'flex', flexDirection:'column', height:'calc(100vh - 60px)' }}>
-      <div style={{background:DARK,padding:'7px 16px',display:'flex',alignItems:'center',gap:8}}>
+      <div style={{background:DARK,padding:'9px 16px',display:'flex',alignItems:'center',gap:8}}>
         {jobName && <span style={{color:ORANGE,fontSize:11,fontWeight:700,flexShrink:0}}>{jobName}</span>}
-        <span style={{color:'#fff',fontWeight:600,fontSize:12}}>📄 This PDF has {thumbnails.length} pages — tap the one to import</span>
+        <span style={{color:'#fff',fontWeight:600,fontSize:14}}>📄 This PDF has {thumbnails.length} pages — tap the one to import</span>
       </div>
 
       <div style={{flex:1,minHeight:0,overflowY:'auto',padding:'12px',WebkitOverflowScrolling:'touch'}}>
@@ -658,7 +690,7 @@ function PdfPageScreen({ thumbnails, buffer, pdfName, pdfSize, jobName, onImport
       <div style={{padding:'10px 12px',background:'#f4f4f2',borderTop:'1px solid #e0e0e0',flexShrink:0}}>
         {err && <div style={{fontSize:12,color:'#c62828',marginBottom:8}}>{err}</div>}
         <button onClick={handleConfirm} disabled={selected==null || importing}
-          style={{width:'100%',padding:'13px',background:(selected==null||importing)?'#ccc':ORANGE,color:'#fff',border:'none',borderRadius:10,fontSize:15,fontWeight:700,cursor:(selected==null||importing)?'not-allowed':'pointer'}}>
+          style={{width:'100%',padding:'13px',background:(selected==null||importing)?'#ccc':ORANGE,color:'#fff',border:'none',borderRadius:10,fontSize:15,fontWeight:700,cursor:(selected==null||importing)?'not-allowed':'pointer',boxShadow:(selected==null||importing)?'none':'0 4px 14px rgba(0,119,182,0.35)'}}>
           {importing ? 'Importing Page…' : selected==null ? 'Select a page above' : `Import Page ${selected} →`}
         </button>
       </div>
@@ -719,9 +751,9 @@ function StraightenScreen({ image, jobName, onDone, onSkip }) {
 
   return (
     <div style={{ display:'flex', flexDirection:'column', height:'calc(100vh - 60px)' }}>
-      <div style={{background:'#3d2b56',padding:'7px 16px',display:'flex',alignItems:'center',gap:8}}>
+      <div style={{background:'#3d2b56',padding:'9px 16px',display:'flex',alignItems:'center',gap:8}}>
         {jobName && <span style={{color:'#c9a4ff',fontSize:11,fontWeight:700,flexShrink:0}}>{jobName}</span>}
-        <span style={{color:'#fff',fontWeight:600,fontSize:12}}>🔄 STRAIGHTEN — tap 2 points on a line that should be level · Pinch to zoom</span>
+        <span style={{color:'#fff',fontWeight:600,fontSize:14}}>🔄 STRAIGHTEN — tap 2 points on a line that should be level · Pinch to zoom</span>
       </div>
 
       <ZoomableBlueprint onTap={handleTap} style={{flex:1,minHeight:0,maxHeight:'60vh'}} onZoomChange={setZoomLevel}>
@@ -787,11 +819,11 @@ function StraightenScreen({ image, jobName, onDone, onSkip }) {
 
         <div style={{display:'flex',gap:8}}>
           <button onClick={onSkip} disabled={working}
-            style={{flex:1,padding:'11px',background:'transparent',color:'#666',border:'2px solid #ddd',borderRadius:8,fontSize:13,fontWeight:700,cursor:working?'not-allowed':'pointer'}}>
+            style={{flex:1,padding:'11px',background:'transparent',color:ORANGE,border:`2px solid ${ORANGE}`,borderRadius:10,fontSize:14,fontWeight:700,cursor:working?'not-allowed':'pointer'}}>
             Skip Straightening →
           </button>
           <button onClick={handleStraighten} disabled={points.length<2 || working}
-            style={{flex:1,padding:'11px',background:(points.length<2||working)?'#ccc':'#8e24aa',color:'#fff',border:'none',borderRadius:8,fontSize:13,fontWeight:700,cursor:(points.length<2||working)?'not-allowed':'pointer'}}>
+            style={{flex:1,padding:'11px',background:(points.length<2||working)?'#ccc':ORANGE,color:'#fff',border:'none',borderRadius:10,fontSize:14,fontWeight:700,cursor:(points.length<2||working)?'not-allowed':'pointer',boxShadow:(points.length<2||working)?'none':'0 4px 14px rgba(0,119,182,0.35)'}}>
             {working ? 'Straightening…' : 'Straighten & Continue →'}
           </button>
         </div>
@@ -844,9 +876,9 @@ function CalibrateScreen({ image, jobName, onDone }) {
 
   return (
     <div style={{ display:'flex', flexDirection:'column', height:'calc(100vh - 60px)' }}>
-      <div style={{background:'#1a2744',padding:'7px 16px',display:'flex',alignItems:'center',gap:8}}>
+      <div style={{background:'#1a2744',padding:'9px 16px',display:'flex',alignItems:'center',gap:8}}>
         {jobName && <span style={{color:ORANGE,fontSize:11,fontWeight:700,flexShrink:0}}>{jobName}</span>}
-        <span style={{color:'#fff',fontWeight:600,fontSize:12}}>Tap A then B on a known dimension line · Pinch to zoom</span>
+        <span style={{color:'#fff',fontWeight:600,fontSize:14}}>📏 SET SCALE — Tap A then B on a known dimension line · Pinch to zoom</span>
       </div>
 
       {/* Zoomable blueprint - max height */}
@@ -912,7 +944,7 @@ function CalibrateScreen({ image, jobName, onDone }) {
           </div>
         )}
         <button onClick={()=>canGo&&onDone(fracPerFt, (imgRef.current?.naturalWidth/imgRef.current?.naturalHeight) || 1.4)} disabled={!canGo}
-          style={{width:'100%',padding:'11px',background:canGo?ORANGE:'#ccc',color:'#fff',border:'none',borderRadius:8,fontSize:14,fontWeight:700,cursor:canGo?'pointer':'not-allowed'}}>
+          style={{width:'100%',padding:'11px',background:canGo?ORANGE:'#ccc',color:'#fff',border:'none',borderRadius:10,fontSize:14,fontWeight:700,cursor:canGo?'pointer':'not-allowed',boxShadow:canGo?'0 4px 14px rgba(0,119,182,0.35)':'none'}}>
           Continue — Draw Overlays →
         </button>
       </div>
@@ -921,7 +953,7 @@ function CalibrateScreen({ image, jobName, onDone }) {
 }
 
 // ── Drawing Screen ────────────────────────────────────────────
-function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, onRemoveRoom, onFinish }) {
+function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, onRemoveRoom, onUpdateRoom, onFinish }) {
   const [points,      setPoints]      = useState([])
   const [naming,      setNaming]      = useState(null)
   const [customName,  setCustomName]  = useState('')
@@ -934,8 +966,13 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
   const [editingColor,        setEditingColor]        = useState(null)
   const [editingName,         setEditingName]         = useState('')
   const [editingOriginalRoom, setEditingOriginalRoom] = useState(null)
+  // Move Corner: nudging a single corner of an already-closed room
+  const [movingRoomId,     setMovingRoomId]     = useState(null)
+  const [movingRoomPoints, setMovingRoomPoints] = useState(null)
+  const [selectedCornerIdx, setSelectedCornerIdx] = useState(null)
   const imgRef = useRef()
   const containerRef = useRef()
+  const blueprintCtrlRef = useRef()
 
   // Room names are scanned on-demand when user closes a polygon
 
@@ -955,8 +992,69 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
     }
   }
 
+  // ── Move Corner: hit-test a tap against the room's corners ─────
+  function centerOnCorner(pts, idx) {
+    if (!imgRef.current || !blueprintCtrlRef.current) return
+    const p = pts[idx]
+    const baseW = imgRef.current.clientWidth
+    const baseH = imgRef.current.clientHeight
+    const targetZoom = Math.max(zoomLevel, 5)
+    blueprintCtrlRef.current.centerOn(p.x * baseW, p.y * baseH, targetZoom)
+  }
+
+  function handleMoveTap(e) {
+    const pt = getPoint(e)
+    if (!pt || !imgRef.current || !movingRoomPoints) return
+    const rect = imgRef.current.getBoundingClientRect()
+    const thresh = 30 / rect.width
+    let bestIdx = -1, bestDist = Infinity
+    movingRoomPoints.forEach((p, idx) => {
+      const dx = pt.x - p.x, dy = pt.y - p.y
+      const d = Math.sqrt(dx*dx + dy*dy)
+      if (d < thresh && d < bestDist) { bestDist = d; bestIdx = idx }
+    })
+    if (bestIdx >= 0) {
+      setSelectedCornerIdx(bestIdx)
+      centerOnCorner(movingRoomPoints, bestIdx)
+    }
+  }
+
+  const NUDGE_INCHES = 1
+  function nudgeCorner(dxIn, dyIn) {
+    if (selectedCornerIdx == null) return
+    setMovingRoomPoints(prev => {
+      const next = [...prev]
+      const p = next[selectedCornerIdx]
+      const fracDx = (dxIn / 12) * fracPerFt
+      const fracDy = (dyIn / 12) * fracPerFt * aspectRatio
+      next[selectedCornerIdx] = { x: clamp01(p.x + fracDx), y: clamp01(p.y + fracDy) }
+      centerOnCorner(next, selectedCornerIdx)
+      return next
+    })
+  }
+
+  function startMoveRoom(room) {
+    if (naming || identifying || points.length > 0 || movingRoomId) return
+    setMovingRoomId(room.id)
+    setMovingRoomPoints([...room.points])
+    setSelectedCornerIdx(null)
+  }
+
+  function finishMoveRoom() {
+    if (!movingRoomId || !movingRoomPoints) return
+    const sqft  = Math.round(polygonAreaFt(movingRoomPoints, fracPerFt, aspectRatio))
+    const perim = Math.round(polygonPerimeterFt(movingRoomPoints, fracPerFt, aspectRatio))
+    onUpdateRoom(movingRoomId, { points: [...movingRoomPoints], sqft, perim })
+    setMovingRoomId(null); setMovingRoomPoints(null); setSelectedCornerIdx(null)
+  }
+
+  function cancelMoveRoom() {
+    setMovingRoomId(null); setMovingRoomPoints(null); setSelectedCornerIdx(null)
+  }
+
   async function handleTap(e) {
     if (naming || identifying) return
+    if (movingRoomId) { handleMoveTap(e); return }
     if (!imgRef.current) return
     // ZoomableBlueprint passes plain {clientX, clientY} object
     const pt = getPoint(e)
@@ -1052,25 +1150,27 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
 
   return (
     <div style={{ display:'flex', flexDirection:'column', height:'calc(100vh - 60px)' }}>
-      <div style={{background: identifying ? '#ff8f00' : color.solid, padding:'7px 16px', color:'#fff', display:'flex', alignItems:'center', gap:8, flexShrink:0}}>
+      <div style={{background: identifying ? '#ff8f00' : movingRoomId ? '#00695c' : color.solid, padding:'9px 16px', color:'#fff', display:'flex', alignItems:'center', gap:8, flexShrink:0}}>
         {jobName && <span style={{fontSize:11,opacity:0.8,flexShrink:0}}>{jobName} ·</span>}
-        <span style={{fontWeight:700,fontSize:12}}>
-          {naming
-            ? `✓ ${naming.sqft.toLocaleString()} sf · ${naming.perim}ft — pick a name below`
-            : points.length===0
-              ? `Room ${rooms.length+1} — tap corners to trace`
-              : `${editingRoomId ? `Editing "${editingName}" · ` : ''}${points.length} pts · ${points.length>=3 ? 'tap near ⭕ to close' : 'keep tapping corners'}`}
+        <span style={{fontWeight:700,fontSize:14}}>
+          {movingRoomId
+            ? (selectedCornerIdx==null ? '🎯 MOVE CORNER — tap the corner to nudge' : '🎯 MOVE CORNER — use the arrows to nudge it')
+            : naming
+              ? `✓ ${naming.sqft.toLocaleString()} sf · ${naming.perim}ft — pick a name below`
+              : points.length===0
+                ? `✏️ TRACE — Room ${rooms.length+1}, tap corners`
+                : `✏️ TRACE — ${editingRoomId ? `Editing "${editingName}" · ` : ''}${points.length} pts · ${points.length>=3 ? 'tap near ⭕ to close' : 'keep tapping corners'}`}
         </span>
       </div>
 
       {/* Zoomable pinch-to-zoom drawing area - fills all available space */}
-      <ZoomableBlueprint onTap={e=>{if(!naming&&!identifying)handleTap(e)}} style={{flex:1,maxHeight:'none',minHeight:0}} onZoomChange={setZoomLevel}>
+      <ZoomableBlueprint ref={blueprintCtrlRef} onTap={e=>{if(!naming&&!identifying)handleTap(e)}} style={{flex:1,maxHeight:'none',minHeight:0}} onZoomChange={setZoomLevel}>
         <div style={{position:'relative'}}>
           <img ref={imgRef} src={image.src} alt="Blueprint"
             style={{width:'100%',display:'block',userSelect:'none'}} draggable={false}
             onLoad={()=>setImgSize({w:imgRef.current.clientWidth,h:imgRef.current.clientHeight})} />
           <svg style={{position:'absolute',inset:0,width:'100%',height:'100%',pointerEvents:'none'}}>
-            {rooms.map(room => {
+            {rooms.filter(r => r.id !== movingRoomId).map(room => {
               const c = centroid(room.points)
               const w = imgSize.w || 400
               const fs1 = Math.max(11/zoomLevel, 3)   // name font px
@@ -1123,6 +1223,30 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
                 </g>
               )
             })}
+            {movingRoomPoints && (() => {
+              const w = imgSize.w > 0 ? imgSize.w : 400
+              const h = imgSize.h > 0 ? imgSize.h : 300
+              return (
+                <g>
+                  <polygon points={toSvgPoints(movingRoomPoints, w, h)} fill="rgba(0,150,136,0.18)" stroke="#00695c" strokeWidth={`${(2/zoomLevel/((imgSize.w||400)))*100}%`} strokeDasharray={`${Math.max(6/zoomLevel,2)},${Math.max(3/zoomLevel,1)}`}/>
+                  {movingRoomPoints.map((pt, i) => {
+                    const isSel = i === selectedCornerIdx
+                    const cx = pt.x * w
+                    const cy = pt.y * h
+                    const r  = (isSel ? 10 : 6.5) / zoomLevel
+                    return (
+                      <g key={i}>
+                        {isSel && (
+                          <circle cx={cx} cy={cy} r={(20/zoomLevel)} fill="none" stroke="#ff6d00"
+                            strokeWidth={2.5/zoomLevel} strokeDasharray={`${5/zoomLevel},${4/zoomLevel}`}/>
+                        )}
+                        <circle cx={cx} cy={cy} r={r} fill={isSel ? '#ff6d00' : '#00695c'} stroke="#fff" strokeWidth={2.5/zoomLevel}/>
+                      </g>
+                    )
+                  })}
+                </g>
+              )
+            })()}
           </svg>
         </div>
       </ZoomableBlueprint>
@@ -1160,7 +1284,7 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
       )}
 
       {/* Controls */}
-      {!naming && (
+      {!naming && !movingRoomId && (
         <div style={{padding:'8px 12px', flexShrink:0, background:'#f4f4f2'}}>
           <div style={{display:'flex',gap:6,marginBottom:6}}>
             {points.length>=3 && (
@@ -1189,6 +1313,8 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
                     </div>
                     <button onClick={()=>startEditRoom(room)} title="Add more corners"
                       style={{padding:'6px 9px',background:'#f0f0f0',border:'1px solid #ddd',borderRadius:6,fontSize:13,cursor:'pointer',flexShrink:0}}>✏️</button>
+                    <button onClick={()=>startMoveRoom(room)} title="Nudge a corner"
+                      style={{padding:'6px 9px',background:'#e0f2f1',border:'1px solid #80cbc4',borderRadius:6,fontSize:13,cursor:'pointer',flexShrink:0}}>🎯</button>
                     <button onClick={()=>onRemoveRoom(room.id)} title="Delete room"
                       style={{padding:'6px 9px',background:'#fdecea',border:'1px solid #f5c6c6',color:'#c62828',borderRadius:6,fontSize:13,cursor:'pointer',flexShrink:0}}>✕</button>
                   </div>
@@ -1206,6 +1332,39 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
           )}
         </div>
       )}
+
+      {/* Move Corner panel */}
+      {movingRoomId && (
+        <div style={{padding:'10px 12px', flexShrink:0, background:'#f4f4f2', borderTop:'2px solid #e0e0e0'}}>
+          {selectedCornerIdx == null ? (
+            <div style={{background:'#e0f2f1',border:'1px solid #80cbc4',borderRadius:8,padding:'10px 14px',fontSize:13,color:'#00695c',fontWeight:600,marginBottom:10,textAlign:'center'}}>
+              🎯 Tap the corner you want to nudge
+            </div>
+          ) : (
+            <>
+              <div style={{fontSize:12,color:'#666',textAlign:'center',marginBottom:8}}>
+                {NUDGE_INCHES}" per tap
+              </div>
+              <div style={{display:'grid',gridTemplateColumns:'56px 56px 56px',gridTemplateRows:'44px 44px',justifyContent:'center',gap:6,marginBottom:10}}>
+                <div />
+                <button onClick={()=>nudgeCorner(0,-NUDGE_INCHES)} style={{background:'#fff',border:'2px solid #00695c',borderRadius:8,fontSize:18,color:'#00695c',cursor:'pointer'}}>▲</button>
+                <div />
+                <button onClick={()=>nudgeCorner(-NUDGE_INCHES,0)} style={{background:'#fff',border:'2px solid #00695c',borderRadius:8,fontSize:18,color:'#00695c',cursor:'pointer'}}>◀</button>
+                <button onClick={()=>nudgeCorner(0,NUDGE_INCHES)} style={{background:'#fff',border:'2px solid #00695c',borderRadius:8,fontSize:18,color:'#00695c',cursor:'pointer'}}>▼</button>
+                <button onClick={()=>nudgeCorner(NUDGE_INCHES,0)} style={{background:'#fff',border:'2px solid #00695c',borderRadius:8,fontSize:18,color:'#00695c',cursor:'pointer'}}>▶</button>
+              </div>
+            </>
+          )}
+          <div style={{display:'flex',gap:8}}>
+            <button onClick={cancelMoveRoom} style={{flex:1,padding:'11px',background:'transparent',border:'1px solid #ddd',borderRadius:8,fontSize:14,color:'#888',cursor:'pointer'}}>
+              Cancel
+            </button>
+            <button onClick={finishMoveRoom} style={{flex:2,padding:'11px',background:'#00695c',color:'#fff',border:'none',borderRadius:8,fontSize:14,fontWeight:700,cursor:'pointer'}}>
+              ✓ Done Moving Corner
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -1217,6 +1376,7 @@ function ResultsScreen({ image, rooms, jobName, onReset, onEdit }) {
   const [saving,     setSaving]     = useState(false)
   const [saved,      setSaved]      = useState(false)
   const [roomPrices, setRoomPrices] = useState({})  // { room.id: pricePerSqft string }
+  const [roomCoatings, setRoomCoatings] = useState({}) // { room.id: coating name string }
   const getRoomTotal = (room) => {
     const p = parseFloat(roomPrices[room.id] || '')
     return (!isNaN(p) && p > 0) ? p * (room.sqft || 0) : 0
@@ -1295,7 +1455,7 @@ function ResultsScreen({ image, rooms, jobName, onReset, onEdit }) {
         F_est * 2.0 +                                                    // totals
         (hasAnyPrice ? F_est * 2.5 : 0) +                                 // price line
         F_est * 1.5 +                                                    // divider
-        Math.ceil(rooms.length / 2) * F_est * 3.2 +                      // room rows 2-col (generous)
+        Math.ceil(rooms.length / 2) * F_est * 5.6 +                      // room rows 2-col (name + sqft/perim + coating + price)
         F_est * 3.0                                                      // footer + bottom pad
       )
       const rowH    = Math.round((legendH - 220) / Math.max(rooms.length, 1))
@@ -1414,33 +1574,56 @@ function ResultsScreen({ image, rooms, jobName, onReset, onEdit }) {
 
       // Room rows — 2 columns to save vertical space
       const swatchSize = F * 1.4
-      const roomRowH   = F * 2.4
+      const roomRowH   = F * 4.3   // room for up to 4 lines: name, sqft/perim, coating, price
       const colW       = (cappedImgW - pad * 2) / 2
       const numRows    = Math.ceil(rooms.length / 2)
+      // Truncate to fit width, accounting for the ellipsis's own width so the
+      // truncated+ellipsis string never exceeds the available column budget
+      function fitText(text, font, maxW) {
+        ctx.font = font
+        if (ctx.measureText(text).width <= maxW) return text
+        const ellW = ctx.measureText('…').width
+        let t = text
+        while (ctx.measureText(t).width > maxW - ellW && t.length > 3) t = t.slice(0, -1)
+        return t + '…'
+      }
       rooms.forEach((room, i) => {
         const col   = i % 2          // 0 = left, 1 = right
         const row   = Math.floor(i / 2)
         const rx    = pad + col * colW
         const ry    = cur + row * roomRowH
+        const avail = colW - swatchSize - 20
         ctx.fillStyle = room.color?.border || '#e53935'
         ctx.fillRect(rx, ry, swatchSize, swatchSize)
-        ctx.fillStyle = '#ffffff'
-        ctx.font = `bold ${F * 1.0}px Arial`
         ctx.textAlign = 'left'
-        // Truncate name if too long for column
-        let name = room.name || 'Room'
-        ctx.font = `bold ${F * 1.0}px Arial`
-        while (ctx.measureText(name).width > colW - swatchSize - 20 && name.length > 3) {
-          name = name.slice(0, -1)
+
+        const nameFont = `bold ${F * 1.0}px Arial`
+        ctx.fillStyle = '#ffffff'
+        ctx.font = nameFont
+        ctx.fillText(fitText(room.name || 'Room', nameFont, avail), rx + swatchSize + 10, ry + swatchSize * 0.65)
+
+        const subFont = `${F * 0.85}px Arial`
+        ctx.fillStyle = '#aaaaaa'
+        ctx.font = subFont
+        const subText = `${(room.sqft||0).toLocaleString()} sf · ${room.perim||0} ft perim`
+        ctx.fillText(fitText(subText, subFont, avail), rx + swatchSize + 10, ry + swatchSize * 1.35)
+
+        const coating = roomCoatings[room.id]
+        if (coating) {
+          ctx.fillStyle = ORANGE
+          ctx.font = subFont
+          ctx.fillText(fitText(coating, subFont, avail), rx + swatchSize + 10, ry + swatchSize * 2.05)
         }
-        if (name !== (room.name || 'Room')) name += '…'
-        ctx.fillText(name, rx + swatchSize + 10, ry + swatchSize * 0.65)
+
         const rp = parseFloat(roomPrices[room.id] || '')
         const rt = (!isNaN(rp) && rp > 0) ? rp * (room.sqft||0) : 0
-        const priceStr = rt > 0 ? `  $${rt.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}` : ''
-        ctx.font = `${F * 0.85}px Arial`
-        ctx.fillStyle = '#aaaaaa'
-        ctx.fillText(`${(room.sqft||0).toLocaleString()} sf · ${room.perim||0} ft perim${priceStr}`, rx + swatchSize + 10, ry + swatchSize * 1.35)
+        if (rt > 0) {
+          const priceFont = `bold ${F * 0.9}px Arial`
+          ctx.fillStyle = '#4caf50'
+          ctx.font = priceFont
+          const priceText = `$${rt.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`
+          ctx.fillText(fitText(priceText, priceFont, avail), rx + swatchSize + 10, ry + swatchSize * 2.75)
+        }
       })
       cur += numRows * roomRowH + F * 1.2
 
@@ -1505,14 +1688,31 @@ function ResultsScreen({ image, rooms, jobName, onReset, onEdit }) {
         {rooms.map(room => {
           const rPrice = roomPrices[room.id] || ''
           const rTotal = getRoomTotal(room)
+          const rCoating = roomCoatings[room.id] || ''
+          const isCustomCoating = rCoating && !COATING_TYPES.includes(rCoating)
           return (
             <div key={room.id} style={{paddingBottom:12,marginBottom:12,borderBottom:'1px solid #f0f0f0'}}>
               <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:6}}>
                 <div style={{width:14,height:14,borderRadius:3,background:(room.color||ROOM_COLORS[0]).fill,border:`2px solid ${(room.color||ROOM_COLORS[0]).border}`,flexShrink:0}} />
                 <div style={{flex:1}}>
                   <div style={{fontWeight:600,fontSize:14,color:'#222'}}>{room.name}</div>
-                  <div style={{fontSize:12,color:'#888'}}>{room.sqft.toLocaleString()} sq ft · {room.perim} ft perimeter</div>
+                  <div style={{fontSize:12,color:'#888'}}>{room.sqft.toLocaleString()} sq ft · {room.perim} ft perimeter{rCoating ? ` · ${rCoating}` : ''}</div>
                 </div>
+              </div>
+              {/* Coating selector */}
+              <div style={{marginLeft:24,marginBottom:8}}>
+                <div style={{display:'flex',flexWrap:'wrap',gap:5,marginBottom:5}}>
+                  {COATING_TYPES.map(c => (
+                    <button key={c} onClick={()=>setRoomCoatings(p=>({...p,[room.id]: p[room.id]===c ? '' : c}))}
+                      style={{padding:'4px 10px',background:rCoating===c?ORANGE:'#f0f0f0',color:rCoating===c?'#fff':'#444',border:`1px solid ${rCoating===c?ORANGE:'#ddd'}`,borderRadius:16,fontSize:11,cursor:'pointer',fontWeight:rCoating===c?700:400}}>
+                      {c}
+                    </button>
+                  ))}
+                </div>
+                <input type="text" placeholder="Or type a custom coating"
+                  value={isCustomCoating ? rCoating : ''}
+                  onChange={e=>setRoomCoatings(p=>({...p,[room.id]:e.target.value}))}
+                  style={{width:'100%',maxWidth:280,padding:'5px 9px',fontSize:12,border:'1px solid #ddd',borderRadius:6,outline:'none',boxSizing:'border-box'}} />
               </div>
               {/* Per-room price input */}
               <div style={{display:'flex',alignItems:'center',gap:8,marginLeft:24}}>
@@ -1637,16 +1837,20 @@ export default function App() {
 
   return (
     <ErrorBoundary>
-    <div style={{ minHeight:'100vh', background:'#f4f4f2' }}>
+    <div style={{ minHeight:'100vh', background:'#dcdcdc' }}>
+      {/* Caps content to a phone-like column on wide screens (desktop testing).
+          On real mobile viewports this has no effect — width just fills 100%. */}
+      <div style={{ maxWidth:480, margin:'0 auto', minHeight:'100vh', background:'#f4f4f2', boxShadow:'0 0 50px rgba(0,0,0,0.12)' }}>
       <style>{`@keyframes spin{to{transform:rotate(360deg)}} .fade-in{animation:fadeIn 0.3s ease forwards} @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}`}</style>
       <Header screen={screen} onBack={handleBack} onReset={reset} />
       {screen==='upload'    && <UploadScreen    onFile={handleFile} error={error} converting={converting} jobName={jobName} setJobName={setJobName} />}
       {screen==='pdfPages'  && pdfPicker && <PdfPageScreen thumbnails={pdfPicker.thumbnails} buffer={pdfPicker.buffer} pdfName={pdfPicker.name} pdfSize={pdfPicker.size} jobName={jobName} onImported={handlePdfPageImported} />}
       {screen==='straighten' && <StraightenScreen image={image} jobName={jobName} onDone={handleStraightenDone} onSkip={()=>setScreen('calibrate')} />}
       {screen==='calibrate' && <CalibrateScreen image={image} jobName={jobName} onDone={handleCalibrateDone} />}
-      {screen==='draw'      && <DrawScreen      image={image} fracPerFt={fracPerFt} aspectRatio={aspectRatio} rooms={rooms} jobName={jobName} onAddRoom={r=>setRooms(p=>[...p,r])} onRemoveRoom={id=>setRooms(p=>p.filter(r=>r.id!==id))} onFinish={()=>setScreen('results')} />}
+      {screen==='draw'      && <DrawScreen      image={image} fracPerFt={fracPerFt} aspectRatio={aspectRatio} rooms={rooms} jobName={jobName} onAddRoom={r=>setRooms(p=>[...p,r])} onRemoveRoom={id=>setRooms(p=>p.filter(r=>r.id!==id))} onUpdateRoom={(id,patch)=>setRooms(p=>p.map(r=>r.id===id?{...r,...patch}:r))} onFinish={()=>setScreen('results')} />}
       {screen==='results'   && <ResultsScreen   image={image} rooms={rooms} jobName={jobName} onReset={reset} onEdit={()=>setScreen('draw')} />}
       <div style={{textAlign:'center',padding:'12px',color:'#bbb',fontSize:11}}>TopCoat Tech · Blueprint Analyzer</div>
+      </div>
     </div>
     </ErrorBoundary>
   )
