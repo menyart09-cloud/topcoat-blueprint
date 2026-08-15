@@ -208,14 +208,15 @@ async function saveToPhotos(canvasEl, jobName) {
   const blob = new Blob([u8arr], { type: mime })
   const file = new File([blob], filename, { type: mime })
 
-  // Web Share API with file — works on iOS Safari and shows native share sheet
-  // User picks "Save Image" to Photos
-  if (navigator.share) {
+  const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
+
+  // Mobile: use Web Share API so iOS can save to Photos
+  if (isMobile && navigator.share) {
     await navigator.share({ files: [file], title: jobName || 'TopCoat Blueprint' })
     return
   }
 
-  // Desktop fallback — trigger download
+  // Desktop: direct download to Downloads folder — no popup
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
