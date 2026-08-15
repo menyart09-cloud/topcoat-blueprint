@@ -1853,18 +1853,18 @@ export default function App() {
 
   return (
     <ErrorBoundary>
-    <div style={{ minHeight:'100vh', background:'#dcdcdc' }}>
+    <div style={{ minHeight:'100vh', background:'#f4f4f2' }}>
       {/* Editor screens (Straighten/Calibrate/Draw) get a wide desktop layout
           with a real canvas+sidebar split (see .editor-body in index.css).
-          Other screens stay a centered phone-width column on wide screens —
-          simple stacked content doesn't need the extra width. Mobile viewports
-          are unaffected either way since they're already narrower than either cap. */}
+          Other screens get a comfortable reading width on wide screens — no
+          boxed/shadow framing, just centered content like a normal website.
+          Mobile viewports are unaffected either way since they're already
+          narrower than either cap. */}
       <div style={{
-        maxWidth: isEditorScreen ? 1400 : 480,
+        maxWidth: isEditorScreen ? 1400 : 720,
         margin:'0 auto',
         minHeight:'100vh',
-        background:'#f4f4f2',
-        boxShadow: isEditorScreen ? 'none' : '0 0 50px rgba(0,0,0,0.12)'
+        background:'#f4f4f2'
       }}>
       <style>{`@keyframes spin{to{transform:rotate(360deg)}} .fade-in{animation:fadeIn 0.3s ease forwards} @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}`}</style>
       <Header screen={screen} onBack={handleBack} onReset={reset} />
