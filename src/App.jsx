@@ -921,7 +921,7 @@ function CalibrateScreen({ image, jobName, onDone }) {
 }
 
 // ── Drawing Screen ────────────────────────────────────────────
-function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, onUndo, onFinish }) {
+function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, onRemoveRoom, onFinish }) {
   const [points,      setPoints]      = useState([])
   const [naming,      setNaming]      = useState(null)
   const [customName,  setCustomName]  = useState('')
@@ -929,6 +929,11 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
   const [zoomLevel,   setZoomLevel]   = useState(1)
   const [scannedNames, setScannedNames] = useState(null)  // null = not yet scanned
   const [scanningNames, setScanningNames] = useState(false)
+  // Editing an already-placed room (adding missed corners) rather than tracing a new one
+  const [editingRoomId,       setEditingRoomId]       = useState(null)
+  const [editingColor,        setEditingColor]        = useState(null)
+  const [editingName,         setEditingName]         = useState('')
+  const [editingOriginalRoom, setEditingOriginalRoom] = useState(null)
   const imgRef = useRef()
   const containerRef = useRef()
 
@@ -976,8 +981,9 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
     const sqft  = Math.round(polygonAreaFt(points, fracPerFt, aspectRatio))
     const perim = Math.round(polygonPerimeterFt(points, fracPerFt, aspectRatio))
     const c     = centroid(points)
-    setNaming({ sqft, perim, centroid: c, color })
-    setCustomName('')
+    const roomColor = editingRoomId ? (editingColor || color) : color
+    setNaming({ sqft, perim, centroid: c, color: roomColor })
+    setCustomName(editingRoomId ? editingName : '')
     // Scan for room names if we haven't yet
     if (scannedNames === null && !scanningNames) {
       setScanningNames(true)
@@ -993,24 +999,48 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
       if (!naming) return
       const name = customName.trim() || 'Room'
       const roomColor = naming.color || color || ROOM_COLORS[0]
-      const roomColorIdx = colorIdx || 0
       onAddRoom({
-        id: Date.now(),
+        id: editingRoomId || Date.now(),
         name,
         sqft: naming.sqft || 0,
         perim: naming.perim || 0,
         points: [...points],
         color: roomColor,
-        colorIdx: roomColorIdx
+        colorIdx: colorIdx || 0
       })
       setPoints([]); setNaming(null); setCustomName('')
+      setEditingRoomId(null); setEditingColor(null); setEditingName(''); setEditingOriginalRoom(null)
     } catch(err) {
       console.error('confirmRoom error:', err)
       setPoints([]); setNaming(null); setCustomName('')
+      setEditingRoomId(null); setEditingColor(null); setEditingName(''); setEditingOriginalRoom(null)
     }
   }
 
-  function cancelRoom() { setPoints([]); setNaming(null); setCustomName('') }
+  function cancelRoom() {
+    // If this was an edit of an existing room, put it back unchanged rather than losing it
+    if (editingRoomId && editingOriginalRoom) onAddRoom(editingOriginalRoom)
+    setPoints([]); setNaming(null); setCustomName('')
+    setEditingRoomId(null); setEditingColor(null); setEditingName(''); setEditingOriginalRoom(null)
+  }
+
+  // Re-open an already-placed room so more corners can be tapped in.
+  // Pulls it out of the finished rooms list until it's closed again.
+  function startEditRoom(room) {
+    if (naming || identifying || points.length > 0) return
+    setPoints([...room.points])
+    setEditingRoomId(room.id)
+    setEditingColor(room.color)
+    setEditingName(room.name)
+    setEditingOriginalRoom(room)
+    onRemoveRoom(room.id)
+  }
+
+  function cancelEditRoom() {
+    if (editingOriginalRoom) onAddRoom(editingOriginalRoom)
+    setPoints([])
+    setEditingRoomId(null); setEditingColor(null); setEditingName(''); setEditingOriginalRoom(null)
+  }
 
   const [imgSize, setImgSize] = useState({ w: 300, h: 400 })
   useEffect(() => {
@@ -1025,7 +1055,11 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
       <div style={{background: identifying ? '#ff8f00' : color.solid, padding:'7px 16px', color:'#fff', display:'flex', alignItems:'center', gap:8, flexShrink:0}}>
         {jobName && <span style={{fontSize:11,opacity:0.8,flexShrink:0}}>{jobName} ·</span>}
         <span style={{fontWeight:700,fontSize:12}}>
-          {naming ? `✓ ${naming.sqft.toLocaleString()} sf · ${naming.perim}ft — pick a name below` : points.length===0 ? `Room ${rooms.length+1} — tap corners to trace` : points.length>=3 ? `${points.length} pts · tap near ⭕ to close` : `${points.length} pts · keep tapping corners`}
+          {naming
+            ? `✓ ${naming.sqft.toLocaleString()} sf · ${naming.perim}ft — pick a name below`
+            : points.length===0
+              ? `Room ${rooms.length+1} — tap corners to trace`
+              : `${editingRoomId ? `Editing "${editingName}" · ` : ''}${points.length} pts · ${points.length>=3 ? 'tap near ⭕ to close' : 'keep tapping corners'}`}
         </span>
       </div>
 
@@ -1138,9 +1172,28 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
               <button onClick={()=>setPoints(p=>p.slice(0,-1))} style={{flex:1,padding:'9px',background:'transparent',border:'1px solid #ddd',borderRadius:7,fontSize:13,color:'#888',cursor:'pointer'}}>↩ Undo</button>
             )}
           </div>
+          {editingRoomId && points.length>0 && (
+            <button onClick={cancelEditRoom} style={{width:'100%',padding:'7px',background:'transparent',border:'1px solid #f5c6c6',borderRadius:7,fontSize:12,color:'#c62828',cursor:'pointer',marginBottom:6}}>
+              ✕ Cancel Edit — Restore Original Room
+            </button>
+          )}
           {rooms.length>0 && points.length===0 && (
             <>
-              <button onClick={onUndo} style={{width:'100%',padding:'8px',background:'transparent',border:'1px solid #ddd',borderRadius:7,fontSize:12,color:'#888',cursor:'pointer',marginBottom:6}}>✕ Remove Last Room</button>
+              <div style={{maxHeight:160,overflowY:'auto',marginBottom:8,WebkitOverflowScrolling:'touch'}}>
+                {rooms.map(room => (
+                  <div key={room.id} style={{display:'flex',alignItems:'center',gap:8,padding:'6px 8px',background:'#fff',border:'1px solid #e8e8e8',borderRadius:7,marginBottom:5}}>
+                    <div style={{width:12,height:12,borderRadius:3,background:(room.color||ROOM_COLORS[0]).fill,border:`2px solid ${(room.color||ROOM_COLORS[0]).border}`,flexShrink:0}} />
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:13,fontWeight:600,color:'#222',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{room.name}</div>
+                      <div style={{fontSize:11,color:'#888'}}>{room.sqft.toLocaleString()} sf</div>
+                    </div>
+                    <button onClick={()=>startEditRoom(room)} title="Add more corners"
+                      style={{padding:'6px 9px',background:'#f0f0f0',border:'1px solid #ddd',borderRadius:6,fontSize:13,cursor:'pointer',flexShrink:0}}>✏️</button>
+                    <button onClick={()=>onRemoveRoom(room.id)} title="Delete room"
+                      style={{padding:'6px 9px',background:'#fdecea',border:'1px solid #f5c6c6',color:'#c62828',borderRadius:6,fontSize:13,cursor:'pointer',flexShrink:0}}>✕</button>
+                  </div>
+                ))}
+              </div>
               <button onClick={onFinish} style={{width:'100%',padding:'12px',background:ORANGE,color:'#fff',border:'none',borderRadius:8,fontSize:15,fontWeight:700,cursor:'pointer'}}>
                 ✓ Done — {rooms.length} room{rooms.length!==1?'s':''}
               </button>
@@ -1591,7 +1644,7 @@ export default function App() {
       {screen==='pdfPages'  && pdfPicker && <PdfPageScreen thumbnails={pdfPicker.thumbnails} buffer={pdfPicker.buffer} pdfName={pdfPicker.name} pdfSize={pdfPicker.size} jobName={jobName} onImported={handlePdfPageImported} />}
       {screen==='straighten' && <StraightenScreen image={image} jobName={jobName} onDone={handleStraightenDone} onSkip={()=>setScreen('calibrate')} />}
       {screen==='calibrate' && <CalibrateScreen image={image} jobName={jobName} onDone={handleCalibrateDone} />}
-      {screen==='draw'      && <DrawScreen      image={image} fracPerFt={fracPerFt} aspectRatio={aspectRatio} rooms={rooms} jobName={jobName} onAddRoom={r=>setRooms(p=>[...p,r])} onUndo={()=>setRooms(p=>p.slice(0,-1))} onFinish={()=>setScreen('results')} />}
+      {screen==='draw'      && <DrawScreen      image={image} fracPerFt={fracPerFt} aspectRatio={aspectRatio} rooms={rooms} jobName={jobName} onAddRoom={r=>setRooms(p=>[...p,r])} onRemoveRoom={id=>setRooms(p=>p.filter(r=>r.id!==id))} onFinish={()=>setScreen('results')} />}
       {screen==='results'   && <ResultsScreen   image={image} rooms={rooms} jobName={jobName} onReset={reset} onEdit={()=>setScreen('draw')} />}
       <div style={{textAlign:'center',padding:'12px',color:'#bbb',fontSize:11}}>TopCoat Tech · Blueprint Analyzer</div>
     </div>
