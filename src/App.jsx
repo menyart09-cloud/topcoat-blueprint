@@ -194,6 +194,72 @@ async function compressImage(base64, mime, quality = 0.5) {
   })
 }
 
+// ── Largest axis-aligned rect inscribed in a rotated W×H image ─
+// Standard rotate-and-crop formula: after rotating a w×h rect by
+// angle `a`, returns the biggest same-orientation rectangle that
+// contains no blank corner pixels.
+function largestInscribedRect(w, h, angleRad) {
+  let a = Math.abs(angleRad) % Math.PI
+  if (a > Math.PI / 2) a = Math.PI - a
+  const widthIsLonger = w >= h
+  const longSide  = widthIsLonger ? w : h
+  const shortSide = widthIsLonger ? h : w
+  const sinA = Math.sin(a), cosA = Math.cos(a)
+  if (shortSide <= 2 * sinA * cosA * longSide || Math.abs(sinA - cosA) < 1e-10) {
+    // Half-constrained case: crop touches the two long sides only
+    const x = 0.5 * shortSide
+    return widthIsLonger ? { w: x / sinA, h: x / cosA } : { w: x / cosA, h: x / sinA }
+  }
+  // Fully-constrained case: crop touches all four sides
+  const cos2a = cosA * cosA - sinA * sinA
+  return {
+    w: (w * cosA - h * sinA) / cos2a,
+    h: (h * cosA - w * sinA) / cos2a
+  }
+}
+
+// ── Rotate image to level a tapped line, then crop off blank corners ─
+async function straightenAndCropImage(src, angleRad) {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => {
+      try {
+        const W = img.naturalWidth, H = img.naturalHeight
+        const cos = Math.cos(angleRad), sin = Math.sin(angleRad)
+        const absCos = Math.abs(cos), absSin = Math.abs(sin)
+
+        // Canvas big enough to hold the fully rotated image
+        const boundW = Math.ceil(W * absCos + H * absSin)
+        const boundH = Math.ceil(W * absSin + H * absCos)
+        const rotCanvas = document.createElement('canvas')
+        rotCanvas.width = boundW
+        rotCanvas.height = boundH
+        const rctx = rotCanvas.getContext('2d')
+        rctx.translate(boundW / 2, boundH / 2)
+        rctx.rotate(angleRad)
+        rctx.drawImage(img, -W / 2, -H / 2, W, H)
+
+        // Crop to the largest rect with no blank corners
+        const { w: cropWf, h: cropHf } = largestInscribedRect(W, H, angleRad)
+        const cw = Math.max(1, Math.floor(Math.min(cropWf, boundW)))
+        const ch = Math.max(1, Math.floor(Math.min(cropHf, boundH)))
+        const cx = Math.floor((boundW - cw) / 2)
+        const cy = Math.floor((boundH - ch) / 2)
+
+        const outCanvas = document.createElement('canvas')
+        outCanvas.width = cw
+        outCanvas.height = ch
+        outCanvas.getContext('2d').drawImage(rotCanvas, cx, cy, cw, ch, 0, 0, cw, ch)
+
+        const dataUrl = outCanvas.toDataURL('image/jpeg', 0.94)
+        resolve({ src: dataUrl, base64: dataUrl.split(',')[1], naturalWidth: cw, naturalHeight: ch })
+      } catch (err) { reject(err) }
+    }
+    img.onerror = () => reject(new Error('Could not load image for straightening'))
+    img.src = src
+  })
+}
+
 // ── Save blueprint image to photo album ───────────────────────
 async function saveToPhotos(canvasEl, jobName) {
   const filename = `${(jobName||'TopCoat').replace(/[^a-zA-Z0-9]/g,'-')}-blueprint.jpg`
@@ -497,6 +563,140 @@ function ZoomableBlueprint({ onTap, children, style, onZoomChange }) {
   )
 }
 
+// ── Straighten Screen ─────────────────────────────────────────
+// Optional. Tap two points along a line that should be level (e.g. a
+// wall edge), and the photo gets rotated so that line runs horizontal.
+// Skippable — most uploads (especially PDFs) won't need this.
+function StraightenScreen({ image, jobName, onDone, onSkip }) {
+  const [points, setPoints]   = useState([])
+  const [zoomLevel, setZoomLevel] = useState(1)
+  const [working, setWorking] = useState(false)
+  const [straightenErr, setStraightenErr] = useState('')
+  const imgRef = useRef()
+
+  function handleTap(e) {
+    if (points.length >= 2) { setPoints([]); return }
+    if (!imgRef.current) return
+    const rect = imgRef.current.getBoundingClientRect()
+    const clientX = e.clientX ?? e.changedTouches?.[0]?.clientX ?? e.touches?.[0]?.clientX
+    const clientY = e.clientY ?? e.changedTouches?.[0]?.clientY ?? e.touches?.[0]?.clientY
+    if (clientX == null) return
+    setPoints(p => [...p, {
+      x: (clientX - rect.left) / rect.width,
+      y: (clientY - rect.top)  / rect.height
+    }])
+  }
+
+  // Angle of the tapped line in real image-pixel space (not raw fraction
+  // space, since photos aren't square — must scale by actual W/H).
+  function getAngleRad() {
+    if (points.length < 2 || !imgRef.current) return null
+    const W = imgRef.current.naturalWidth, H = imgRef.current.naturalHeight
+    if (!W || !H) return null
+    const dx = (points[1].x - points[0].x) * W
+    const dy = (points[1].y - points[0].y) * H
+    return Math.atan2(dy, dx)
+  }
+
+  const angleRad = getAngleRad()
+  const angleDeg = angleRad != null ? angleRad * 180 / Math.PI : null
+  const bigAdjustment = angleDeg != null && Math.abs(angleDeg) > 30
+
+  async function handleStraighten() {
+    if (angleRad == null) return
+    setWorking(true); setStraightenErr('')
+    try {
+      const result = await straightenAndCropImage(image.src, -angleRad)
+      onDone(result)
+    } catch (err) {
+      setStraightenErr('Could not straighten that image — try again or skip.')
+      setWorking(false)
+    }
+  }
+
+  return (
+    <div style={{ display:'flex', flexDirection:'column', height:'calc(100vh - 60px)' }}>
+      <div style={{background:'#3d2b56',padding:'7px 16px',display:'flex',alignItems:'center',gap:8}}>
+        {jobName && <span style={{color:'#c9a4ff',fontSize:11,fontWeight:700,flexShrink:0}}>{jobName}</span>}
+        <span style={{color:'#fff',fontWeight:600,fontSize:12}}>🔄 STRAIGHTEN — tap 2 points on a line that should be level · Pinch to zoom</span>
+      </div>
+
+      <ZoomableBlueprint onTap={handleTap} style={{flex:1,minHeight:0,maxHeight:'60vh'}} onZoomChange={setZoomLevel}>
+        <div style={{position:'relative'}}>
+          <img ref={imgRef} src={image.src} alt="Blueprint"
+            style={{width:'100%',display:'block',userSelect:'none'}} draggable={false} />
+          <svg style={{position:'absolute',inset:0,width:'100%',height:'100%',pointerEvents:'none'}}>
+            {points.map((pt,i) => {
+              const w = imgRef.current?.clientWidth || 400
+              const h = imgRef.current?.clientHeight || 300
+              const arm = 18 / zoomLevel
+              const sw  = 2.8 / zoomLevel
+              const col = i===0 ? '#8e24aa' : '#00897b'
+              const cx  = pt.x * w
+              const cy  = pt.y * h
+              return (
+                <g key={i}>
+                  <line x1={cx-arm} y1={cy} x2={cx+arm} y2={cy} stroke="#fff" strokeWidth={sw*2.5}/>
+                  <line x1={cx} y1={cy-arm} x2={cx} y2={cy+arm} stroke="#fff" strokeWidth={sw*2.5}/>
+                  <line x1={cx-arm} y1={cy} x2={cx+arm} y2={cy} stroke={col} strokeWidth={sw}/>
+                  <line x1={cx} y1={cy-arm} x2={cx} y2={cy+arm} stroke={col} strokeWidth={sw}/>
+                  <text x={cx} y={cy} dy={-arm*1.6} textAnchor="middle" fill={col}
+                    fontSize={Math.max(13/zoomLevel, 9)} fontWeight="bold"
+                    style={{filter:'drop-shadow(0 1px 2px rgba(255,255,255,0.9))'}}>{i===0?'1':'2'}</text>
+                </g>
+              )
+            })}
+            {points.length===2 && (() => {
+              const w = imgRef.current?.clientWidth || 400
+              const h = imgRef.current?.clientHeight || 300
+              return (
+                <line x1={points[0].x*w} y1={points[0].y*h} x2={points[1].x*w} y2={points[1].y*h}
+                  stroke="#00897b" strokeWidth={2/zoomLevel} strokeDasharray={`${6/zoomLevel},${4/zoomLevel}`} opacity="0.85"/>
+              )
+            })()}
+          </svg>
+        </div>
+      </ZoomableBlueprint>
+
+      <div style={{padding:'10px 12px',background:'#f4f4f2',borderTop:'1px solid #e0e0e0',flexShrink:0}}>
+        <div style={{display:'flex',gap:6,marginBottom:8}}>
+          <div style={{flex:1,padding:'6px 8px',background:points.length>=1?'#f3e5f5':'#fff',border:`1px solid ${points.length>=1?'#ce93d8':'#ddd'}`,borderRadius:6,textAlign:'center',fontSize:12,fontWeight:600,color:points.length>=1?'#6a1b9a':'#999'}}>
+            {points.length>=1?'✓ Point 1 set':'Tap point 1'}
+          </div>
+          <div style={{flex:1,padding:'6px 8px',background:points.length>=2?'#e0f2f1':'#fff',border:`1px solid ${points.length>=2?'#80cbc4':'#ddd'}`,borderRadius:6,textAlign:'center',fontSize:12,fontWeight:600,color:points.length>=2?'#00695c':'#999'}}>
+            {points.length>=2?'✓ Point 2 set':'Tap point 2'}
+          </div>
+          {points.length>0 && (
+            <button onClick={()=>setPoints([])} style={{padding:'6px 10px',background:'transparent',border:'1px solid #ddd',borderRadius:6,fontSize:12,color:'#888',cursor:'pointer',flexShrink:0}}>↺</button>
+          )}
+        </div>
+
+        {angleDeg != null && (
+          <div style={{fontSize:11,color:bigAdjustment?'#c62828':'#555',fontWeight:600,marginBottom:8}}>
+            {bigAdjustment
+              ? `⚠️ ${Math.abs(angleDeg).toFixed(1)}° adjustment — double-check you tapped a line that should be level`
+              : `Tilt detected: ${Math.abs(angleDeg).toFixed(1)}°`}
+          </div>
+        )}
+        {straightenErr && (
+          <div style={{fontSize:12,color:'#c62828',marginBottom:8}}>{straightenErr}</div>
+        )}
+
+        <div style={{display:'flex',gap:8}}>
+          <button onClick={onSkip} disabled={working}
+            style={{flex:1,padding:'11px',background:'transparent',color:'#666',border:'2px solid #ddd',borderRadius:8,fontSize:13,fontWeight:700,cursor:working?'not-allowed':'pointer'}}>
+            Skip Straightening →
+          </button>
+          <button onClick={handleStraighten} disabled={points.length<2 || working}
+            style={{flex:1,padding:'11px',background:(points.length<2||working)?'#ccc':'#8e24aa',color:'#fff',border:'none',borderRadius:8,fontSize:13,fontWeight:700,cursor:(points.length<2||working)?'not-allowed':'pointer'}}>
+            {working ? 'Straightening…' : 'Straighten & Continue →'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Calibration Screen ────────────────────────────────────────
 function CalibrateScreen({ image, jobName, onDone }) {
   const [points, setPoints]   = useState([])
@@ -608,7 +808,7 @@ function CalibrateScreen({ image, jobName, onDone }) {
             {scaleOk ? `✓ Scale OK — ${parsedFt?.toFixed(1)} ft calibrated` : '⚠️ Scale off — use a longer line'}
           </div>
         )}
-        <button onClick={()=>canGo&&onDone(fracPerFt, image.naturalWidth/image.naturalHeight || 1.4)} disabled={!canGo}
+        <button onClick={()=>canGo&&onDone(fracPerFt, (imgRef.current?.naturalWidth/imgRef.current?.naturalHeight) || 1.4)} disabled={!canGo}
           style={{width:'100%',padding:'11px',background:canGo?ORANGE:'#ccc',color:'#fff',border:'none',borderRadius:8,fontSize:14,fontWeight:700,cursor:canGo?'pointer':'not-allowed'}}>
           Continue — Draw Overlays →
         </button>
@@ -1231,8 +1431,13 @@ export default function App() {
     if (payload.loading) { setConverting(true); setError(''); return }
     setConverting(false)
     if (payload.error) { setError(payload.error); return }
-    setError(''); setImage(payload); setScreen('calibrate')
+    setError(''); setImage(payload); setScreen('straighten')
   }, [])
+
+  function handleStraightenDone(result) {
+    setImage(prev => ({ ...prev, ...result }))
+    setScreen('calibrate')
+  }
 
   function handleCalibrateDone(fpf, ar) {
     setFracPerFt(fpf)
@@ -1242,7 +1447,8 @@ export default function App() {
   }
 
   function handleBack() {
-    if (screen === 'calibrate') { setScreen('upload'); setImage(null) }
+    if (screen === 'straighten') { setScreen('upload'); setImage(null) }
+    else if (screen === 'calibrate') setScreen('straighten')
     else if (screen === 'draw') setScreen('calibrate')
     else if (screen === 'results') setScreen('draw')
   }
@@ -1258,6 +1464,7 @@ export default function App() {
       <style>{`@keyframes spin{to{transform:rotate(360deg)}} .fade-in{animation:fadeIn 0.3s ease forwards} @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}`}</style>
       <Header screen={screen} onBack={handleBack} onReset={reset} />
       {screen==='upload'    && <UploadScreen    onFile={handleFile} error={error} converting={converting} jobName={jobName} setJobName={setJobName} />}
+      {screen==='straighten' && <StraightenScreen image={image} jobName={jobName} onDone={handleStraightenDone} onSkip={()=>setScreen('calibrate')} />}
       {screen==='calibrate' && <CalibrateScreen image={image} jobName={jobName} onDone={handleCalibrateDone} />}
       {screen==='draw'      && <DrawScreen      image={image} fracPerFt={fracPerFt} aspectRatio={aspectRatio} rooms={rooms} jobName={jobName} onAddRoom={r=>setRooms(p=>[...p,r])} onUndo={()=>setRooms(p=>p.slice(0,-1))} onFinish={()=>setScreen('results')} />}
       {screen==='results'   && <ResultsScreen   image={image} rooms={rooms} jobName={jobName} onReset={reset} onEdit={()=>setScreen('draw')} />}
