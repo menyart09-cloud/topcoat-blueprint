@@ -81,38 +81,67 @@ function toSvgPoints(points, w, h) {
 }
 
 // ── PDF to high-res image ─────────────────────────────────────
-async function pdfToImage(file) {
-  return new Promise((resolve, reject) => {
+// ── Ensure pdf.js library is loaded (shared by all PDF rendering) ─
+async function ensurePdfJs() {
+  if (window.pdfjsLib) return
+  await new Promise((res, rej) => {
+    const script = document.createElement('script')
+    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js'
+    script.onload = res
+    script.onerror = () => rej(new Error('Could not load PDF renderer'))
+    document.head.appendChild(script)
+  })
+  window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+    'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'
+}
+
+// ── Render one page of a loaded pdf.js document to a data URL ──
+async function renderPdfPageToDataUrl(pdfDoc, pageNum, scale, quality = 0.95) {
+  const page = await pdfDoc.getPage(pageNum)
+  const viewport = page.getViewport({ scale })
+  const canvas = document.createElement('canvas')
+  canvas.width = viewport.width
+  canvas.height = viewport.height
+  await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise
+  return canvas.toDataURL('image/jpeg', quality)
+}
+
+// ── Load a PDF file. Single-page PDFs render immediately at full
+// quality. Multi-page PDFs return low-res thumbnails of every page
+// so the user can pick which one to import, plus the raw bytes so
+// the chosen page can be re-rendered at full quality afterward. ──
+async function pdfFileToPageInfo(file) {
+  const arrayBuffer = await new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onerror = () => reject(new Error('Could not read PDF'))
-    reader.onload = async (e) => {
-      try {
-        const typedArray = new Uint8Array(e.target.result)
-        if (!window.pdfjsLib) {
-          await new Promise((res, rej) => {
-            const script = document.createElement('script')
-            script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js'
-            script.onload = res
-            script.onerror = () => rej(new Error('Could not load PDF renderer'))
-            document.head.appendChild(script)
-          })
-          window.pdfjsLib.GlobalWorkerOptions.workerSrc =
-            'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'
-        }
-        const pdf = await window.pdfjsLib.getDocument({ data: typedArray }).promise
-        const page = await pdf.getPage(1)
-        const scale = 3.0
-        const viewport = page.getViewport({ scale })
-        const canvas = document.createElement('canvas')
-        canvas.width = viewport.width
-        canvas.height = viewport.height
-        await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.95)
-        resolve({ src: dataUrl, base64: dataUrl.split(',')[1], mime: 'image/jpeg', name: file.name, size: file.size, fromPdf: true })
-      } catch (err) { reject(new Error('PDF rendering failed: ' + err.message)) }
-    }
+    reader.onload = e => resolve(e.target.result)
     reader.readAsArrayBuffer(file)
   })
+  await ensurePdfJs()
+  // Pass a copy — pdf.js can transfer/detach the buffer it's given,
+  // and we need the original bytes intact for re-rendering later.
+  const pdfDoc = await window.pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer.slice(0)) }).promise
+
+  if (pdfDoc.numPages <= 1) {
+    const dataUrl = await renderPdfPageToDataUrl(pdfDoc, 1, 3.0, 0.95)
+    return { single: true, src: dataUrl, base64: dataUrl.split(',')[1], mime: 'image/jpeg', name: file.name, size: file.size, fromPdf: true }
+  }
+
+  const thumbnails = []
+  for (let p = 1; p <= pdfDoc.numPages; p++) {
+    const thumb = await renderPdfPageToDataUrl(pdfDoc, p, 0.35, 0.7)
+    thumbnails.push({ pageNum: p, thumb })
+  }
+  return { single: false, thumbnails, buffer: arrayBuffer, name: file.name, size: file.size }
+}
+
+// ── Re-render one specific page of an already-loaded PDF buffer,
+// at full import quality (used once the user confirms their pick) ─
+async function renderFullPdfPage(arrayBuffer, pageNum) {
+  await ensurePdfJs()
+  const pdfDoc = await window.pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer.slice(0)) }).promise
+  const dataUrl = await renderPdfPageToDataUrl(pdfDoc, pageNum, 3.0, 0.95)
+  return { src: dataUrl, base64: dataUrl.split(',')[1] }
 }
 
 // ── AI room identifier ────────────────────────────────────────
@@ -325,7 +354,14 @@ function UploadScreen({ onFile, error, converting, jobName, setJobName }) {
     if (!file) return
     if (file.name?.toLowerCase().endsWith('.pdf') || file.type === 'application/pdf') {
       onFile({ loading: true })
-      try { onFile(await pdfToImage(file)) }
+      try {
+        const info = await pdfFileToPageInfo(file)
+        if (info.single) {
+          onFile({ src: info.src, base64: info.base64, mime: info.mime, name: info.name, size: info.size, fromPdf: true })
+        } else {
+          onFile({ needsPageSelect: true, thumbnails: info.thumbnails, buffer: info.buffer, name: info.name, size: info.size })
+        }
+      }
       catch (err) { onFile({ error: err.message }) }
       return
     }
@@ -558,6 +594,73 @@ function ZoomableBlueprint({ onTap, children, style, onZoomChange }) {
         }}>
           {children}
         </div>
+      </div>
+    </div>
+  )
+}
+
+// ── PDF Page Picker ────────────────────────────────────────────
+// Shown only for multi-page PDFs. Scroll the list, tap a page to
+// select it (tap again to deselect), then confirm explicitly —
+// nothing imports until the button is pressed.
+function PdfPageScreen({ thumbnails, buffer, pdfName, pdfSize, jobName, onImported }) {
+  const [selected, setSelected]   = useState(null)
+  const [importing, setImporting] = useState(false)
+  const [err, setErr]             = useState('')
+
+  function toggle(pageNum) {
+    if (importing) return
+    setSelected(p => p === pageNum ? null : pageNum)
+  }
+
+  async function handleConfirm() {
+    if (selected == null || importing) return
+    setImporting(true); setErr('')
+    try {
+      const res = await renderFullPdfPage(buffer, selected)
+      onImported({ src: res.src, base64: res.base64, mime: 'image/jpeg', name: pdfName, size: pdfSize, fromPdf: true })
+    } catch (e) {
+      setErr('Could not import that page — try again.')
+      setImporting(false)
+    }
+  }
+
+  return (
+    <div style={{ display:'flex', flexDirection:'column', height:'calc(100vh - 60px)' }}>
+      <div style={{background:DARK,padding:'7px 16px',display:'flex',alignItems:'center',gap:8}}>
+        {jobName && <span style={{color:ORANGE,fontSize:11,fontWeight:700,flexShrink:0}}>{jobName}</span>}
+        <span style={{color:'#fff',fontWeight:600,fontSize:12}}>📄 This PDF has {thumbnails.length} pages — tap the one to import</span>
+      </div>
+
+      <div style={{flex:1,minHeight:0,overflowY:'auto',padding:'12px',WebkitOverflowScrolling:'touch'}}>
+        {thumbnails.map(({ pageNum, thumb }) => {
+          const isSel = selected === pageNum
+          return (
+            <div key={pageNum} onClick={()=>toggle(pageNum)}
+              style={{
+                position:'relative', marginBottom:14, borderRadius:12, overflow:'hidden', cursor:'pointer',
+                border:`3px solid ${isSel?ORANGE:'#e0e0e0'}`,
+                boxShadow: isSel ? '0 4px 14px rgba(0,119,182,0.35)' : '0 1px 4px rgba(0,0,0,0.08)',
+                background:'#fff'
+              }}>
+              <img src={thumb} alt={`Page ${pageNum}`} style={{width:'100%',display:'block',maxHeight:340,objectFit:'contain',background:'#f4f4f2'}} draggable={false} />
+              <div style={{position:'absolute',top:8,left:8,background:isSel?ORANGE:'rgba(0,0,0,0.55)',color:'#fff',fontSize:12,fontWeight:700,padding:'3px 10px',borderRadius:6}}>
+                Page {pageNum}
+              </div>
+              {isSel && (
+                <div style={{position:'absolute',top:8,right:8,width:26,height:26,borderRadius:'50%',background:ORANGE,color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:15,fontWeight:800,boxShadow:'0 1px 4px rgba(0,0,0,0.3)'}}>✓</div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+
+      <div style={{padding:'10px 12px',background:'#f4f4f2',borderTop:'1px solid #e0e0e0',flexShrink:0}}>
+        {err && <div style={{fontSize:12,color:'#c62828',marginBottom:8}}>{err}</div>}
+        <button onClick={handleConfirm} disabled={selected==null || importing}
+          style={{width:'100%',padding:'13px',background:(selected==null||importing)?'#ccc':ORANGE,color:'#fff',border:'none',borderRadius:10,fontSize:15,fontWeight:700,cursor:(selected==null||importing)?'not-allowed':'pointer'}}>
+          {importing ? 'Importing Page…' : selected==null ? 'Select a page above' : `Import Page ${selected} →`}
+        </button>
       </div>
     </div>
   )
@@ -1431,13 +1534,25 @@ export default function App() {
   const [jobName,     setJobName]     = useState('')
   const [error,       setError]       = useState('')
   const [converting,  setConverting]  = useState(false)
+  const [pdfPicker,   setPdfPicker]   = useState(null) // {thumbnails, buffer, name, size} for multi-page PDFs
 
   const handleFile = useCallback((payload) => {
     if (payload.loading) { setConverting(true); setError(''); return }
     setConverting(false)
     if (payload.error) { setError(payload.error); return }
+    if (payload.needsPageSelect) {
+      setError('')
+      setPdfPicker({ thumbnails: payload.thumbnails, buffer: payload.buffer, name: payload.name, size: payload.size })
+      setScreen('pdfPages')
+      return
+    }
     setError(''); setImage(payload); setScreen('straighten')
   }, [])
+
+  function handlePdfPageImported(payload) {
+    setImage(payload)
+    setScreen('straighten')
+  }
 
   function handleStraightenDone(result) {
     setImage(prev => ({ ...prev, ...result }))
@@ -1452,7 +1567,11 @@ export default function App() {
   }
 
   function handleBack() {
-    if (screen === 'straighten') { setScreen('upload'); setImage(null) }
+    if (screen === 'pdfPages') { setPdfPicker(null); setImage(null); setScreen('upload') }
+    else if (screen === 'straighten') {
+      if (pdfPicker) setScreen('pdfPages')
+      else { setScreen('upload'); setImage(null) }
+    }
     else if (screen === 'calibrate') setScreen('straighten')
     else if (screen === 'draw') setScreen('calibrate')
     else if (screen === 'results') setScreen('draw')
@@ -1460,7 +1579,7 @@ export default function App() {
 
   function reset() {
     setScreen('upload'); setImage(null); setFracPerFt(null); setRooms([]); setError(''); setConverting(false)
-    setJobName('')
+    setJobName(''); setPdfPicker(null)
   }
 
   return (
@@ -1469,6 +1588,7 @@ export default function App() {
       <style>{`@keyframes spin{to{transform:rotate(360deg)}} .fade-in{animation:fadeIn 0.3s ease forwards} @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}`}</style>
       <Header screen={screen} onBack={handleBack} onReset={reset} />
       {screen==='upload'    && <UploadScreen    onFile={handleFile} error={error} converting={converting} jobName={jobName} setJobName={setJobName} />}
+      {screen==='pdfPages'  && pdfPicker && <PdfPageScreen thumbnails={pdfPicker.thumbnails} buffer={pdfPicker.buffer} pdfName={pdfPicker.name} pdfSize={pdfPicker.size} jobName={jobName} onImported={handlePdfPageImported} />}
       {screen==='straighten' && <StraightenScreen image={image} jobName={jobName} onDone={handleStraightenDone} onSkip={()=>setScreen('calibrate')} />}
       {screen==='calibrate' && <CalibrateScreen image={image} jobName={jobName} onDone={handleCalibrateDone} />}
       {screen==='draw'      && <DrawScreen      image={image} fracPerFt={fracPerFt} aspectRatio={aspectRatio} rooms={rooms} jobName={jobName} onAddRoom={r=>setRooms(p=>[...p,r])} onUndo={()=>setRooms(p=>p.slice(0,-1))} onFinish={()=>setScreen('results')} />}
