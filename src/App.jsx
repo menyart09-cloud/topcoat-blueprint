@@ -911,7 +911,7 @@ function ResultsScreen({ image, rooms, jobName, onReset, onEdit }) {
         F_est * 2.0 +                                                    // totals
         (totalPrice ? F_est * 2.5 : 0) +                                 // price line
         F_est * 1.5 +                                                    // divider
-        rooms.length * F_est * 3.2 +                                     // room rows (generous)
+        Math.ceil(rooms.length / 2) * F_est * 3.2 +                      // room rows 2-col (generous)
         F_est * 3.0                                                      // footer + bottom pad
       )
       const rowH    = Math.round((legendH - 220) / Math.max(rooms.length, 1))
@@ -1019,21 +1019,34 @@ ctx.fillText(`${(room.sqft||0).toLocaleString()} sf`, c.x * cappedImgW, c.y * ca
       ctx.fillRect(pad, cur, cappedImgW - pad * 2, 1)
       cur += F * 0.6
 
-      // Room rows
+      // Room rows — 2 columns to save vertical space
       const swatchSize = F * 1.4
-      const roomRowH = F * 2.4
+      const roomRowH   = F * 2.4
+      const colW       = (cappedImgW - pad * 2) / 2
+      const numRows    = Math.ceil(rooms.length / 2)
       rooms.forEach((room, i) => {
-        const ry = cur + i * roomRowH
+        const col   = i % 2          // 0 = left, 1 = right
+        const row   = Math.floor(i / 2)
+        const rx    = pad + col * colW
+        const ry    = cur + row * roomRowH
         ctx.fillStyle = room.color?.border || '#e53935'
-        ctx.fillRect(pad, ry, swatchSize, swatchSize)
+        ctx.fillRect(rx, ry, swatchSize, swatchSize)
         ctx.fillStyle = '#ffffff'
-        ctx.font = `bold ${F * 1.1}px Arial`
-        ctx.fillText(room.name || 'Room', pad + swatchSize + 12, ry + swatchSize * 0.65)
-        ctx.font = `${F * 0.9}px Arial`
+        ctx.font = `bold ${F * 1.0}px Arial`
+        ctx.textAlign = 'left'
+        // Truncate name if too long for column
+        let name = room.name || 'Room'
+        ctx.font = `bold ${F * 1.0}px Arial`
+        while (ctx.measureText(name).width > colW - swatchSize - 20 && name.length > 3) {
+          name = name.slice(0, -1)
+        }
+        if (name !== (room.name || 'Room')) name += '…'
+        ctx.fillText(name, rx + swatchSize + 10, ry + swatchSize * 0.65)
+        ctx.font = `${F * 0.85}px Arial`
         ctx.fillStyle = '#aaaaaa'
-        ctx.fillText(`${(room.sqft||0).toLocaleString()} sq ft  ·  ${room.perim||0} ft perimeter`, pad + swatchSize + 12, ry + swatchSize * 1.35)
+        ctx.fillText(`${(room.sqft||0).toLocaleString()} sf · ${room.perim||0} ft perim`, rx + swatchSize + 10, ry + swatchSize * 1.35)
       })
-      cur += rooms.length * roomRowH + F * 1.2
+      cur += numRows * roomRowH + F * 1.2
 
       // Footer — always at bottom of canvas
       ctx.font = `${F * 0.75}px Arial`
