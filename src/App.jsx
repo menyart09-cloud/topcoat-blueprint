@@ -858,12 +858,15 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
 function ResultsScreen({ image, rooms, jobName, onReset, onEdit }) {
   const totalSqft  = Math.round(rooms.reduce((s,r)=>s+(r.sqft||0),0))
   const totalPerim = Math.round(rooms.reduce((s,r)=>s+(r.perim||0),0))
-  const [saving,       setSaving]       = useState(false)
-  const [saved,        setSaved]        = useState(false)
-  const [pricePerSqft, setPricePerSqft] = useState('')
-  const totalPrice = pricePerSqft && !isNaN(parseFloat(pricePerSqft))
-    ? (totalSqft * parseFloat(pricePerSqft)).toFixed(2)
-    : null
+  const [saving,     setSaving]     = useState(false)
+  const [saved,      setSaved]      = useState(false)
+  const [roomPrices, setRoomPrices] = useState({})  // { room.id: pricePerSqft string }
+  const getRoomTotal = (room) => {
+    const p = parseFloat(roomPrices[room.id] || '')
+    return (!isNaN(p) && p > 0) ? p * (room.sqft || 0) : 0
+  }
+  const grandTotal = rooms.reduce((s, r) => s + getRoomTotal(r), 0)
+  const hasAnyPrice = rooms.some(r => parseFloat(roomPrices[r.id] || '') > 0)
   const blueprintRef = useRef()
   const [imgSize, setImgSize] = useState({ w: 300, h: 400 })
 
@@ -1027,12 +1030,11 @@ function ResultsScreen({ image, rooms, jobName, onReset, onEdit }) {
       cur += F * 0.4
 
       // Price line
-      if (totalPrice) {
+      if (hasAnyPrice && grandTotal > 0) {
         cur += F * 1.4
         ctx.font = `bold ${F * 1.3}px Arial`
         ctx.fillStyle = '#4caf50'
-        const priceText = `Job Total: $${parseFloat(totalPrice).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}  @  $${parseFloat(pricePerSqft).toFixed(2)}/sf`
-        // Auto-shrink font if text too wide
+        const priceText = `Job Total: $${grandTotal.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`
         let pFont = F * 1.3
         ctx.font = `bold ${pFont}px Arial`
         while (ctx.measureText(priceText).width > cappedImgW - pad * 2 && pFont > F * 0.7) {
@@ -1072,9 +1074,12 @@ function ResultsScreen({ image, rooms, jobName, onReset, onEdit }) {
         }
         if (name !== (room.name || 'Room')) name += '…'
         ctx.fillText(name, rx + swatchSize + 10, ry + swatchSize * 0.65)
+        const rp = parseFloat(roomPrices[room.id] || '')
+        const rt = (!isNaN(rp) && rp > 0) ? rp * (room.sqft||0) : 0
+        const priceStr = rt > 0 ? `  $${rt.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}` : ''
         ctx.font = `${F * 0.85}px Arial`
         ctx.fillStyle = '#aaaaaa'
-        ctx.fillText(`${(room.sqft||0).toLocaleString()} sf · ${room.perim||0} ft perim`, rx + swatchSize + 10, ry + swatchSize * 1.35)
+        ctx.fillText(`${(room.sqft||0).toLocaleString()} sf · ${room.perim||0} ft perim${priceStr}`, rx + swatchSize + 10, ry + swatchSize * 1.35)
       })
       cur += numRows * roomRowH + F * 1.2
 
@@ -1136,55 +1141,51 @@ function ResultsScreen({ image, rooms, jobName, onReset, onEdit }) {
       {/* Room legend */}
       <div style={{background:'#fff',border:'1px solid #e8e8e8',borderRadius:12,padding:'14px 16px',marginBottom:14}}>
         <div style={{fontWeight:700,fontSize:14,color:'#333',marginBottom:12}}>Room Breakdown</div>
-        {rooms.map(room => (
-          <div key={room.id} style={{display:'flex',alignItems:'center',gap:10,paddingBottom:10,marginBottom:10,borderBottom:'1px solid #f0f0f0'}}>
-            <div style={{width:14,height:14,borderRadius:3,background:(room.color||ROOM_COLORS[0]).fill,border:`2px solid ${(room.color||ROOM_COLORS[0]).border}`,flexShrink:0}} />
-            <div style={{flex:1}}>
-              <div style={{fontWeight:600,fontSize:14,color:'#222'}}>{room.name}</div>
-              <div style={{fontSize:12,color:'#888'}}>{room.sqft.toLocaleString()} sq ft · {room.perim} ft perimeter</div>
+        {rooms.map(room => {
+          const rPrice = roomPrices[room.id] || ''
+          const rTotal = getRoomTotal(room)
+          return (
+            <div key={room.id} style={{paddingBottom:12,marginBottom:12,borderBottom:'1px solid #f0f0f0'}}>
+              <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:6}}>
+                <div style={{width:14,height:14,borderRadius:3,background:(room.color||ROOM_COLORS[0]).fill,border:`2px solid ${(room.color||ROOM_COLORS[0]).border}`,flexShrink:0}} />
+                <div style={{flex:1}}>
+                  <div style={{fontWeight:600,fontSize:14,color:'#222'}}>{room.name}</div>
+                  <div style={{fontSize:12,color:'#888'}}>{room.sqft.toLocaleString()} sq ft · {room.perim} ft perimeter</div>
+                </div>
+              </div>
+              {/* Per-room price input */}
+              <div style={{display:'flex',alignItems:'center',gap:8,marginLeft:24}}>
+                <span style={{fontSize:12,color:'#666',flexShrink:0}}>$/sf</span>
+                <div style={{display:'flex',alignItems:'center',border:'1px solid #ddd',borderRadius:6,overflow:'hidden',flex:1,maxWidth:140}}>
+                  <span style={{padding:'5px 8px',background:'#f5f5f5',color:'#666',fontSize:13,borderRight:'1px solid #ddd'}}>$</span>
+                  <input type="number" step="0.01" min="0" placeholder="0.00"
+                    value={rPrice}
+                    onChange={e=>setRoomPrices(p=>({...p,[room.id]:e.target.value}))}
+                    style={{flex:1,padding:'5px 8px',fontSize:14,border:'none',outline:'none',width:80}} />
+                </div>
+                {rTotal > 0 && (
+                  <span style={{fontSize:13,fontWeight:700,color:'#4caf50'}}>
+                    = ${rTotal.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}
+                  </span>
+                )}
+              </div>
             </div>
-          </div>
-        ))}
+          )
+        })}
 
         {/* Totals */}
-        <div style={{background:DARK,borderRadius:10,padding:'12px 16px',display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:4}}>
+        <div style={{background:DARK,borderRadius:10,padding:'14px 16px',display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:4}}>
           <div>
-            <div style={{color:'#aaa',fontSize:12}}>Total coating area</div>
-            <div style={{color:'#666',fontSize:11,marginTop:1}}>Total perimeter: {totalPerim} ft</div>
+            <div style={{color:'#aaa',fontSize:16,fontWeight:700}}>Total coating area</div>
+            <div style={{color:'#888',fontSize:13,marginTop:2}}>Perimeter: {totalPerim} ft</div>
+            {hasAnyPrice && (
+              <div style={{color:'#4caf50',fontSize:18,fontWeight:800,marginTop:4}}>
+                Job Total: ${grandTotal.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}
+              </div>
+            )}
           </div>
-          <div style={{color:ORANGE,fontSize:28,fontWeight:800,lineHeight:1}}>{totalSqft.toLocaleString()} <span style={{fontSize:13,color:'#aaa',fontWeight:400}}>sq ft</span></div>
+          <div style={{color:ORANGE,fontSize:36,fontWeight:800,lineHeight:1}}>{totalSqft.toLocaleString()} <span style={{fontSize:16,color:'#aaa',fontWeight:400}}>sq ft</span></div>
         </div>
-      </div>
-
-      {/* Pricing calculator */}
-      <div style={{background:'#fff',border:'1px solid #e8e8e8',borderRadius:12,padding:'14px 16px',marginBottom:14}}>
-        <div style={{fontWeight:700,fontSize:14,color:'#222',marginBottom:10}}>💰 Job Pricing</div>
-        <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:10}}>
-          <span style={{fontSize:13,color:'#666',flexShrink:0}}>Price per sq ft</span>
-          <div style={{display:'flex',alignItems:'center',flex:1,border:'2px solid #ddd',borderRadius:8,overflow:'hidden'}}>
-            <span style={{padding:'8px 10px',background:'#f5f5f5',color:'#666',fontSize:15,borderRight:'1px solid #ddd'}}>$</span>
-            <input
-              type="number"
-              step="0.01"
-              min="0"
-              placeholder="0.00"
-              value={pricePerSqft}
-              onChange={e=>setPricePerSqft(e.target.value)}
-              style={{flex:1,padding:'8px 12px',fontSize:16,border:'none',outline:'none'}}
-            />
-          </div>
-        </div>
-        {totalPrice && (
-          <div style={{background:DARK,borderRadius:10,padding:'14px 16px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-            <div>
-              <div style={{color:'#aaa',fontSize:12}}>Estimated job total</div>
-              <div style={{color:'#666',fontSize:11,marginTop:1}}>{totalSqft.toLocaleString()} sq ft × ${parseFloat(pricePerSqft).toFixed(2)}/sf</div>
-            </div>
-            <div style={{color:'#4caf50',fontSize:28,fontWeight:800,lineHeight:1}}>
-              ${parseFloat(totalPrice).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}
-            </div>
-          </div>
-        )}
       </div>
 
       <div style={{background:'#fff8e1',border:'1px solid #ffe082',borderRadius:8,padding:'10px 14px',fontSize:12,color:'#5d4037',marginBottom:16,lineHeight:1.5}}>
