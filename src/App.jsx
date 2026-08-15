@@ -1841,24 +1841,9 @@ export default function App() {
     setJobName(''); setPdfPicker(null)
   }
 
-  const isEditorScreen = screen === 'straighten' || screen === 'calibrate' || screen === 'draw'
-
   return (
     <ErrorBoundary>
     <div style={{ minHeight:'100vh', background:'#f4f4f2' }}>
-      {/* Editor screens (Straighten/Calibrate/Draw) get a wider container so
-          the blueprint canvas has more room — but stay single-column/stacked
-          (canvas on top, controls below), same as mobile, just wider.
-          Other screens get a comfortable reading width on wide screens — no
-          boxed/shadow framing, just centered content like a normal website.
-          Mobile viewports are unaffected either way since they're already
-          narrower than either cap. */}
-      <div style={{
-        maxWidth: isEditorScreen ? 1400 : 720,
-        margin:'0 auto',
-        minHeight:'100vh',
-        background:'#f4f4f2'
-      }}>
       <style>{`@keyframes spin{to{transform:rotate(360deg)}} .fade-in{animation:fadeIn 0.3s ease forwards} @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}`}</style>
       <Header screen={screen} onBack={handleBack} onReset={reset} />
       {screen==='upload'    && <UploadScreen    onFile={handleFile} error={error} converting={converting} jobName={jobName} setJobName={setJobName} />}
@@ -1868,7 +1853,6 @@ export default function App() {
       {screen==='draw'      && <DrawScreen      image={image} fracPerFt={fracPerFt} aspectRatio={aspectRatio} rooms={rooms} jobName={jobName} onAddRoom={r=>setRooms(p=>[...p,r])} onRemoveRoom={id=>setRooms(p=>p.filter(r=>r.id!==id))} onUpdateRoom={(id,patch)=>setRooms(p=>p.map(r=>r.id===id?{...r,...patch}:r))} onFinish={()=>setScreen('results')} />}
       {screen==='results'   && <ResultsScreen   image={image} rooms={rooms} jobName={jobName} onReset={reset} onEdit={()=>setScreen('draw')} />}
       <div style={{textAlign:'center',padding:'12px',color:'#bbb',fontSize:11}}>TopCoat Tech · Blueprint Analyzer</div>
-      </div>
     </div>
     </ErrorBoundary>
   )
