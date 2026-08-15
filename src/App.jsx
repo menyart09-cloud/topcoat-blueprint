@@ -1158,7 +1158,7 @@ function ResultsScreen({ image, rooms, jobName, onReset, onEdit }) {
                 <span style={{fontSize:12,color:'#666',flexShrink:0}}>$/sf</span>
                 <div style={{display:'flex',alignItems:'center',border:'1px solid #ddd',borderRadius:6,overflow:'hidden',flex:1,maxWidth:140}}>
                   <span style={{padding:'5px 8px',background:'#f5f5f5',color:'#666',fontSize:13,borderRight:'1px solid #ddd'}}>$</span>
-                  <input type="number" step="0.01" min="0" placeholder="0.00"
+                  <input type="text" inputMode="decimal" placeholder="0.00"
                     value={rPrice}
                     onChange={e=>setRoomPrices(p=>({...p,[room.id]:e.target.value}))}
                     style={{flex:1,padding:'5px 8px',fontSize:14,border:'none',outline:'none',width:80}} />
