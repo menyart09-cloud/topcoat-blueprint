@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react'
 
-const ORANGE = '#e85d04'
+const ORANGE = '#00A8E8'
 const DARK   = '#1c1c2e'
 
 const ROOM_COLORS = [
@@ -286,7 +286,7 @@ function UploadScreen({ onFile, error, converting, jobName, setJobName }) {
           style={{width:'100%',padding:'10px 14px',fontSize:15,border:'2px solid #ddd',borderRadius:8,outline:'none',boxSizing:'border-box'}} />
       </div>
 
-      <button onClick={() => cameraRef.current?.click()} style={{ width:'100%', padding:'16px', background:ORANGE, color:'#fff', border:'none', borderRadius:14, fontSize:16, fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:10, marginBottom:12, boxShadow:'0 4px 16px rgba(232,93,4,0.35)' }}>
+      <button onClick={() => cameraRef.current?.click()} style={{ width:'100%', padding:'16px', background:ORANGE, color:'#fff', border:'none', borderRadius:14, fontSize:16, fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:10, marginBottom:12, boxShadow:'0 4px 16px rgba(0,168,232,0.35)' }}>
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
           <circle cx="12" cy="13" r="4"/>
@@ -298,12 +298,12 @@ function UploadScreen({ onFile, error, converting, jobName, setJobName }) {
       <div onClick={() => !converting && uploadRef.current?.click()}
         onDragOver={e=>{e.preventDefault();setDrag(true)}} onDragLeave={()=>setDrag(false)}
         onDrop={e=>{e.preventDefault();setDrag(false);handleFiles(e.dataTransfer.files)}}
-        style={{ border:`2px dashed ${drag?ORANGE:'#ccc'}`, borderRadius:14, padding:'24px 20px', textAlign:'center', cursor:converting?'wait':'pointer', background:drag?'#fff8f5':'#fff' }}>
+        style={{ border:`2px dashed ${drag?ORANGE:'#ccc'}`, borderRadius:14, padding:'24px 20px', textAlign:'center', cursor:converting?'wait':'pointer', background:drag?'#f0faff':'#fff' }}>
         <input ref={uploadRef} type="file" accept="image/jpeg,image/png,image/gif,image/webp,image/heic,.pdf,application/pdf" style={{ display:'none' }} onChange={e=>handleFiles(e.target.files)} />
         {converting ? (
           <><div style={{fontSize:28,marginBottom:8}}>⏳</div><div style={{fontWeight:600,fontSize:14,color:'#222'}}>Converting PDF…</div></>
         ) : (
-          <><div style={{fontSize:32,marginBottom:8}}>📄</div><div style={{fontWeight:600,fontSize:14,color:'#222',marginBottom:4}}>Upload Blueprint</div><div style={{fontSize:13,color:'#999'}}>PDF · JPG · PNG · WEBP</div><div style={{marginTop:8,display:'inline-block',background:'#fff3e0',color:'#e65100',borderRadius:6,padding:'3px 10px',fontSize:12,fontWeight:600}}>✓ PDF supported</div></>
+          <><div style={{fontSize:32,marginBottom:8}}>📄</div><div style={{fontWeight:600,fontSize:14,color:'#222',marginBottom:4}}>Upload Blueprint</div><div style={{fontSize:13,color:'#999'}}>PDF · JPG · PNG · WEBP</div><div style={{marginTop:8,display:'inline-block',background:'#e3f7fd',color:'#0077a8',borderRadius:6,padding:'3px 10px',fontSize:12,fontWeight:600}}>✓ PDF supported</div></>
         )}
       </div>
       {error && <div style={{marginTop:12,background:'#fdecea',border:'1px solid #f5c6c6',borderRadius:8,padding:'12px 14px',color:'#c62828',fontSize:13}}>⚠️ {error}</div>}
@@ -992,7 +992,7 @@ ctx.fillText(`${(room.sqft||0).toLocaleString()} sf`, c.x * cappedImgW, c.y * ca
       while (ctx.measureText(totalText).width > cappedImgW - pad * 2 && tFont > F * 0.5) {
         tFont -= 1; ctx.font = `${tFont}px Arial`
       }
-      ctx.fillStyle = '#e85d04'
+      ctx.fillStyle = '#00A8E8'
       ctx.fillText(totalText, pad, cur)
       cur += F * 0.4
 
