@@ -932,16 +932,39 @@ function ResultsScreen({ image, rooms, jobName, onReset, onEdit }) {
       ctx.fillStyle = '#1c1c2e'
       ctx.fillRect(0, 0, cappedImgW, totalH)
 
-      // Blueprint — draw at correct aspect ratio
-      ctx.drawImage(img, 0, 0, cappedImgW, cappedImgH)
+      // ── Compute crop region from room bounding box ────────────
+      let minX = 1, minY = 1, maxX = 0, maxY = 0
+      rooms.forEach(room => {
+        room.points.forEach(pt => {
+          if (pt.x < minX) minX = pt.x
+          if (pt.y < minY) minY = pt.y
+          if (pt.x > maxX) maxX = pt.x
+          if (pt.y > maxY) maxY = pt.y
+        })
+      })
+      const margin = 0.07
+      const cropX1 = Math.max(0, minX - margin)
+      const cropY1 = Math.max(0, minY - margin)
+      const cropX2 = Math.min(1, maxX + margin)
+      const cropY2 = Math.min(1, maxY + margin)
+      // Helper: fraction coords → cropped canvas pixels
+      const toCanvasX = fx => ((fx - cropX1) / (cropX2 - cropX1)) * cappedImgW
+      const toCanvasY = fy => ((fy - cropY1) / (cropY2 - cropY1)) * cappedImgH
 
-      // Room polygons
+      // Draw cropped portion of blueprint
+      ctx.drawImage(img,
+        cropX1 * imgW, cropY1 * imgH,
+        (cropX2 - cropX1) * imgW, (cropY2 - cropY1) * imgH,
+        0, 0, cappedImgW, cappedImgH
+      )
+
+      // Room polygons — in cropped coordinate space
       rooms.forEach(room => {
         if (!room.points || room.points.length < 3) return
         ctx.beginPath()
         room.points.forEach((pt, i) => {
-          const x = pt.x * cappedImgW
-          const y = pt.y * cappedImgH
+          const x = toCanvasX(pt.x)
+          const y = toCanvasY(pt.y)
           i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y)
         })
         ctx.closePath()
@@ -951,13 +974,15 @@ function ResultsScreen({ image, rooms, jobName, onReset, onEdit }) {
         ctx.lineWidth = 3
         ctx.stroke()
         const c = centroid(room.points)
+        const cx = toCanvasX(c.x)
+        const cy = toCanvasY(c.y)
         ctx.fillStyle = room.color?.border || '#e53935'
         ctx.font = 'bold 16px Arial'
         ctx.textAlign = 'center'
-ctx.fillText(room.name || 'Room', c.x * cappedImgW, c.y * cappedImgH - 4)
+        ctx.fillText(room.name || 'Room', cx, cy - 4)
         ctx.font = '13px Arial'
         ctx.fillStyle = '#fff'
-ctx.fillText(`${(room.sqft||0).toLocaleString()} sf`, c.x * cappedImgW, c.y * cappedImgH + 14)
+        ctx.fillText(`${(room.sqft||0).toLocaleString()} sf`, cx, cy + 14)
       })
 
       // ── Legend section ────────────────────────────────────────
