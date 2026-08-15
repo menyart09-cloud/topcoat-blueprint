@@ -448,23 +448,29 @@ const ZoomableBlueprint = React.forwardRef(function ZoomableBlueprint({ onTap, c
   React.useImperativeHandle(ref, () => ({
     centerOn(xAtZoom1, yAtZoom1, targetZoom) {
       const z = Math.min(Math.max(targetZoom, 1), 12)
-      pendingCenterRef.current = { x: xAtZoom1, y: yAtZoom1, z }
-      zoomRef.current = z
-      setZoom(z)
-      onZoomChange && onZoomChange(z)
+      const apply = () => {
+        const container = containerRef.current
+        if (!container) return
+        container.scrollLeft = xAtZoom1 * z - container.clientWidth / 2
+        container.scrollTop  = yAtZoom1 * z - container.clientHeight / 2
+      }
+      if (z === zoomRef.current) {
+        // Zoom isn't changing, so no re-render will happen — scroll right away
+        // rather than waiting on a state change that will never come.
+        requestAnimationFrame(apply)
+      } else {
+        pendingCenterRef.current = apply
+        zoomRef.current = z
+        setZoom(z)
+        onZoomChange && onZoomChange(z)
+      }
     }
   }))
 
   // Apply the pending scroll position once the DOM has re-rendered at the new zoom
   useEffect(() => {
     if (!pendingCenterRef.current) return
-    const { x, y, z } = pendingCenterRef.current
-    if (z !== zoom) return
-    const container = containerRef.current
-    if (container) {
-      container.scrollLeft = x * z - container.clientWidth / 2
-      container.scrollTop  = y * z - container.clientHeight / 2
-    }
+    pendingCenterRef.current()
     pendingCenterRef.current = null
   }, [zoom])
 
@@ -756,9 +762,7 @@ function StraightenScreen({ image, jobName, onDone, onSkip }) {
         <span style={{color:'#fff',fontWeight:600,fontSize:14}}>🔄 STRAIGHTEN — tap 2 points on a line that should be level · Pinch to zoom</span>
       </div>
 
-      <div className="editor-body">
-      <div className="editor-canvas-wrap">
-      <ZoomableBlueprint onTap={handleTap} style={{flex:1,minHeight:0,height:'100%'}} onZoomChange={setZoomLevel}>
+      <ZoomableBlueprint onTap={handleTap} style={{flex:1,minHeight:0,maxHeight:'60vh'}} onZoomChange={setZoomLevel}>
         <div style={{position:'relative'}}>
           <img ref={imgRef} src={image.src} alt="Blueprint"
             style={{width:'100%',display:'block',userSelect:'none'}} draggable={false} />
@@ -794,9 +798,8 @@ function StraightenScreen({ image, jobName, onDone, onSkip }) {
           </svg>
         </div>
       </ZoomableBlueprint>
-      </div>
 
-      <div className="editor-controls" style={{padding:'10px 12px',background:'#f4f4f2',borderTop:'1px solid #e0e0e0',flexShrink:0}}>
+      <div style={{padding:'10px 12px',background:'#f4f4f2',borderTop:'1px solid #e0e0e0',flexShrink:0}}>
         <div style={{display:'flex',gap:6,marginBottom:8}}>
           <div style={{flex:1,padding:'6px 8px',background:points.length>=1?'#f3e5f5':'#fff',border:`1px solid ${points.length>=1?'#ce93d8':'#ddd'}`,borderRadius:6,textAlign:'center',fontSize:12,fontWeight:600,color:points.length>=1?'#6a1b9a':'#999'}}>
             {points.length>=1?'✓ Point 1 set':'Tap point 1'}
@@ -830,7 +833,6 @@ function StraightenScreen({ image, jobName, onDone, onSkip }) {
             {working ? 'Straightening…' : 'Straighten & Continue →'}
           </button>
         </div>
-      </div>
       </div>
     </div>
   )
@@ -886,9 +888,7 @@ function CalibrateScreen({ image, jobName, onDone }) {
       </div>
 
       {/* Zoomable blueprint - max height */}
-      <div className="editor-body">
-      <div className="editor-canvas-wrap">
-      <ZoomableBlueprint onTap={handleTap} style={{flex:1,minHeight:0,height:'100%'}} onZoomChange={setZoomLevel}>
+      <ZoomableBlueprint onTap={handleTap} style={{flex:1,minHeight:0,maxHeight:'60vh'}} onZoomChange={setZoomLevel}>
         <div style={{position:'relative'}}>
           <img ref={imgRef} src={image.src} alt="Blueprint"
             style={{width:'100%',display:'block',userSelect:'none'}} draggable={false} />
@@ -918,10 +918,9 @@ function CalibrateScreen({ image, jobName, onDone }) {
           </svg>
         </div>
       </ZoomableBlueprint>
-      </div>
 
       {/* Compact controls strip */}
-      <div className="editor-controls" style={{padding:'10px 12px',background:'#f4f4f2',borderTop:'1px solid #e0e0e0',flexShrink:0}}>
+      <div style={{padding:'10px 12px',background:'#f4f4f2',borderTop:'1px solid #e0e0e0',flexShrink:0}}>
         {/* Status row */}
         <div style={{display:'flex',gap:6,marginBottom:8}}>
           <div style={{flex:1,padding:'6px 8px',background:points.length>=1?'#e8f5e9':'#fff',border:`1px solid ${points.length>=1?'#a5d6a7':'#ddd'}`,borderRadius:6,textAlign:'center',fontSize:12,fontWeight:600,color:points.length>=1?'#2e7d32':'#999'}}>
@@ -954,7 +953,6 @@ function CalibrateScreen({ image, jobName, onDone }) {
           style={{width:'100%',padding:'11px',background:canGo?ORANGE:'#ccc',color:'#fff',border:'none',borderRadius:10,fontSize:14,fontWeight:700,cursor:canGo?'pointer':'not-allowed',boxShadow:canGo?'0 4px 14px rgba(0,119,182,0.35)':'none'}}>
           Continue — Draw Overlays →
         </button>
-      </div>
       </div>
     </div>
   )
@@ -1172,9 +1170,7 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
       </div>
 
       {/* Zoomable pinch-to-zoom drawing area - fills all available space */}
-      <div className="editor-body">
-      <div className="editor-canvas-wrap" style={{maxHeight:'none'}}>
-      <ZoomableBlueprint ref={blueprintCtrlRef} onTap={e=>{if(!naming&&!identifying)handleTap(e)}} style={{flex:1,maxHeight:'none',minHeight:0,height:'100%'}} onZoomChange={setZoomLevel}>
+      <ZoomableBlueprint ref={blueprintCtrlRef} onTap={e=>{if(!naming&&!identifying)handleTap(e)}} style={{flex:1,maxHeight:'none',minHeight:0}} onZoomChange={setZoomLevel}>
         <div style={{position:'relative'}}>
           <img ref={imgRef} src={image.src} alt="Blueprint"
             style={{width:'100%',display:'block',userSelect:'none'}} draggable={false}
@@ -1260,9 +1256,7 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
           </svg>
         </div>
       </ZoomableBlueprint>
-      </div>
 
-      <div className="editor-controls">
       {/* Naming panel */}
       {naming && (
         <div style={{padding:'12px 16px',background:'#fff',borderTop:'2px solid #e8e8e8'}}>
@@ -1377,8 +1371,6 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
           </div>
         </div>
       )}
-      </div>
-      </div>
     </div>
   )
 }
@@ -1854,8 +1846,9 @@ export default function App() {
   return (
     <ErrorBoundary>
     <div style={{ minHeight:'100vh', background:'#f4f4f2' }}>
-      {/* Editor screens (Straighten/Calibrate/Draw) get a wide desktop layout
-          with a real canvas+sidebar split (see .editor-body in index.css).
+      {/* Editor screens (Straighten/Calibrate/Draw) get a wider container so
+          the blueprint canvas has more room — but stay single-column/stacked
+          (canvas on top, controls below), same as mobile, just wider.
           Other screens get a comfortable reading width on wide screens — no
           boxed/shadow framing, just centered content like a normal website.
           Mobile viewports are unaffected either way since they're already
