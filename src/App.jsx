@@ -1193,7 +1193,7 @@ function ResultsScreen({ image, rooms, jobName, onReset, onEdit }) {
       {/* Save button */}
       <button onClick={handleSave} disabled={saving}
         style={{width:'100%',padding:'15px',background:saved?'#2e7d32':saving?'#888':ORANGE,color:'#fff',border:'none',borderRadius:10,fontSize:15,fontWeight:700,cursor:saving?'not-allowed':'pointer',marginBottom:10}}>
-        {saved ? '✓ Done — tap Save Image in share sheet' : saving ? 'Building image…' : '📸 Save Image'}
+        {saved ? '✓ Report Saved!' : saving ? 'Building Report…' : '📸 Save Report'}
       </button>
       <button onClick={onEdit} style={{width:'100%',padding:'12px',background:'transparent',color:ORANGE,border:`2px solid ${ORANGE}`,borderRadius:10,fontSize:14,fontWeight:700,cursor:'pointer',marginBottom:10}}>← Edit Rooms</button>
       <button onClick={onReset} style={{width:'100%',padding:'12px',background:'transparent',border:'1px solid #ddd',borderRadius:8,fontSize:13,color:'#888',cursor:'pointer'}}>↺ New Job</button>
