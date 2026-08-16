@@ -83,6 +83,44 @@ function toSvgPoints(points, w, h) {
   return points.map(p => `${p.x*w},${p.y*h}`).join(' ')
 }
 
+// ── Crosshair marker (plain CSS, rendered via ZoomableBlueprint's overlay) ──
+// x,y are already true on-screen pixel coordinates (from toScreen), so sizes
+// here are genuine fixed CSS pixels — no zoom-compensation math involved.
+function renderCrosshairMarker(x, y, color, key, isFirst, label) {
+  const arm = 11, thick = 1.8, halo = 4.4, dotR = 2.5
+  return (
+    <div key={key} style={{ position:'absolute', left:0, top:0 }}>
+      <div style={{ position:'absolute', left:x-arm, top:y-halo/2, width:arm*2, height:halo, background:'#fff' }}/>
+      <div style={{ position:'absolute', left:x-halo/2, top:y-arm, width:halo, height:arm*2, background:'#fff' }}/>
+      <div style={{ position:'absolute', left:x-arm, top:y-thick/2, width:arm*2, height:thick, background:color }}/>
+      <div style={{ position:'absolute', left:x-thick/2, top:y-arm, width:thick, height:arm*2, background:color }}/>
+      <div style={{ position:'absolute', left:x-dotR, top:y-dotR, width:dotR*2, height:dotR*2, borderRadius:'50%', background:color, border:'1px solid #fff' }}/>
+      {isFirst && (
+        <div style={{ position:'absolute', left:x-arm*1.4, top:y-arm*1.4, width:arm*2.8, height:arm*2.8, borderRadius:'50%', border:`1.5px dashed ${color}` }}/>
+      )}
+      {label && (
+        <div style={{ position:'absolute', left:x, top:y-arm*1.6, transform:'translate(-50%,-100%)', color, fontWeight:700, fontSize:13, whiteSpace:'nowrap', filter:'drop-shadow(0 1px 2px rgba(255,255,255,0.9))' }}>
+          {label}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Move-corner marker (plain CSS, same overlay approach) ──────
+function renderMoveCornerMarker(x, y, isSelected, key) {
+  const r = isSelected ? 9 : 5.5
+  const col = isSelected ? '#ff6d00' : '#00695c'
+  return (
+    <div key={key} style={{ position:'absolute', left:0, top:0 }}>
+      {isSelected && (
+        <div style={{ position:'absolute', left:x-17, top:y-17, width:34, height:34, borderRadius:'50%', border:'2px dashed #ff6d00' }}/>
+      )}
+      <div style={{ position:'absolute', left:x-r, top:y-r, width:r*2, height:r*2, borderRadius:'50%', background:col, border:'2px solid #fff' }}/>
+    </div>
+  )
+}
+
 // ── Clamp a fractional image coordinate to [0,1] ────────────────
 function clamp01(v) { return Math.min(1, Math.max(0, v)) }
 
@@ -333,8 +371,13 @@ async function saveToPhotos(canvasEl, jobName) {
 
   const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
 
-  // Mobile: use Web Share API so iOS can save to Photos
-  if (isMobile && navigator.share) {
+  // Mobile: use Web Share API so the file can be saved to Photos/Gallery —
+  // but only if the browser actually supports sharing FILES specifically.
+  // Some browsers (notably a handful of Android ones) expose navigator.share
+  // for text/links only, without file support, which would otherwise throw
+  // here instead of falling through to the direct-download path below.
+  const canShareFile = isMobile && navigator.canShare && navigator.canShare({ files: [file] })
+  if (canShareFile) {
     await navigator.share({ files: [file], title: jobName || 'TopCoat Blueprint' })
     return
   }
@@ -459,13 +502,43 @@ function UploadScreen({ onFile, error, converting, jobName, setJobName }) {
 // Handles pinch-to-zoom + pan on mobile, Ctrl+wheel zoom + drag-pan on desktop.
 // Exposes centerOn(xAtZoom1, yAtZoom1, targetZoom) via ref for programmatic
 // centering (used by Move Corner to auto-center/zoom on a selected corner).
-const ZoomableBlueprint = React.forwardRef(function ZoomableBlueprint({ onTap, children, style, onZoomChange }, ref) {
+const ZoomableBlueprint = React.forwardRef(function ZoomableBlueprint({ onTap, children, style, onZoomChange, renderOverlay }, ref) {
   const containerRef = useRef()
   const lastTouchRef = useRef(null)
   const pinchRef     = useRef(null)
   const [zoom, setZoom] = useState(1)
   const zoomRef = useRef(1)
   const pendingCenterRef = useRef(null)
+  const [, forceOverlayUpdate] = useState(0)
+
+  // Re-render the overlay on scroll (imperative scrollLeft/scrollTop changes
+  // don't trigger React re-renders on their own, but overlay marker positions
+  // depend on the current scroll offset).
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container || !renderOverlay) return
+    let raf = null
+    function onScroll() {
+      if (raf) return
+      raf = requestAnimationFrame(() => { forceOverlayUpdate(v => v + 1); raf = null })
+    }
+    container.addEventListener('scroll', onScroll, { passive: true })
+    return () => container.removeEventListener('scroll', onScroll)
+  }, [renderOverlay])
+
+  // Converts a fractional image coordinate (0-1) + the image's own unscaled
+  // pixel size into true on-screen pixel coordinates, given the CURRENT zoom
+  // and scroll position. Overlay markers built from this are positioned with
+  // plain pixel math — not CSS transform + division — so their rendered size
+  // is genuinely fixed and can't inherit any transform/zoom-tracking bug.
+  function toScreen(fx, fy, baseW, baseH) {
+    const container = containerRef.current
+    if (!container) return { x: 0, y: 0 }
+    return {
+      x: fx * baseW * zoomRef.current - container.scrollLeft,
+      y: fy * baseH * zoomRef.current - container.scrollTop
+    }
+  }
 
   React.useImperativeHandle(ref, () => ({
     centerOn(xAtZoom1, yAtZoom1, targetZoom) {
@@ -618,6 +691,7 @@ const ZoomableBlueprint = React.forwardRef(function ZoomableBlueprint({ onTap, c
   }
 
   return (
+    <div style={{ position:'relative', height:'100%', ...style }}>
     <div ref={containerRef}
       style={{
         overflow: 'auto',
@@ -625,8 +699,9 @@ const ZoomableBlueprint = React.forwardRef(function ZoomableBlueprint({ onTap, c
         position: 'relative',
         cursor: zoom > 1.01 ? 'grab' : 'crosshair',
         WebkitOverflowScrolling: 'touch',
+        touchAction: 'pan-x pan-y',
         height: '100%',
-        ...style
+        width: '100%'
       }}
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}
@@ -655,6 +730,16 @@ const ZoomableBlueprint = React.forwardRef(function ZoomableBlueprint({ onTap, c
           {children}
         </div>
       </div>
+    </div>
+    {/* Overlay lives OUTSIDE the scrolling/transformed subtree, as a sibling
+        covering the same box — so it always matches the visible viewport
+        regardless of scroll position, and markers inside it use plain pixel
+        positioning rather than inheriting the content's CSS transform. */}
+    {renderOverlay && (
+      <div style={{ position:'absolute', inset:0, overflow:'hidden', pointerEvents:'none' }}>
+        {renderOverlay(toScreen)}
+      </div>
+    )}
     </div>
   )
 })
@@ -784,37 +869,25 @@ function StraightenScreen({ image, jobName, onDone, onSkip }) {
         <span style={{color:'#fff',fontWeight:600,fontSize:14}}>🔄 STRAIGHTEN — tap 2 points on a line that should be level · Pinch to zoom</span>
       </div>
 
-      <ZoomableBlueprint onTap={handleTap} style={{flex:1,minHeight:0,maxHeight:'60vh'}} onZoomChange={setZoomLevel}>
+      <ZoomableBlueprint onTap={handleTap} style={{flex:1,minHeight:0,maxHeight:'60vh'}} onZoomChange={setZoomLevel}
+        renderOverlay={toScreen => (
+          <>
+            {points.map((pt,i) => {
+              const { x, y } = toScreen(pt.x, pt.y, imgRef.current?.clientWidth||400, imgRef.current?.clientHeight||300)
+              return renderCrosshairMarker(x, y, i===0 ? '#8e24aa' : '#00897b', i, false, i===0?'1':'2')
+            })}
+          </>
+        )}>
         <div style={{position:'relative'}}>
           <img ref={imgRef} src={image.src} alt="Blueprint"
             style={{width:'100%',display:'block',userSelect:'none'}} draggable={false} />
           <svg style={{position:'absolute',inset:0,width:'100%',height:'100%',pointerEvents:'none'}}>
-            {points.map((pt,i) => {
-              const w = imgRef.current?.clientWidth || 400
-              const h = imgRef.current?.clientHeight || 300
-              const arm = 18 / zoomLevel
-              const sw  = 2.8 / zoomLevel
-              const col = i===0 ? '#8e24aa' : '#00897b'
-              const cx  = pt.x * w
-              const cy  = pt.y * h
-              return (
-                <g key={i}>
-                  <line x1={cx-arm} y1={cy} x2={cx+arm} y2={cy} stroke="#fff" strokeWidth={sw*2.5}/>
-                  <line x1={cx} y1={cy-arm} x2={cx} y2={cy+arm} stroke="#fff" strokeWidth={sw*2.5}/>
-                  <line x1={cx-arm} y1={cy} x2={cx+arm} y2={cy} stroke={col} strokeWidth={sw}/>
-                  <line x1={cx} y1={cy-arm} x2={cx} y2={cy+arm} stroke={col} strokeWidth={sw}/>
-                  <text x={cx} y={cy} dy={-arm*1.6} textAnchor="middle" fill={col}
-                    fontSize={Math.max(13/zoomLevel, 9)} fontWeight="bold"
-                    style={{filter:'drop-shadow(0 1px 2px rgba(255,255,255,0.9))'}}>{i===0?'1':'2'}</text>
-                </g>
-              )
-            })}
             {points.length===2 && (() => {
               const w = imgRef.current?.clientWidth || 400
               const h = imgRef.current?.clientHeight || 300
               return (
                 <line x1={points[0].x*w} y1={points[0].y*h} x2={points[1].x*w} y2={points[1].y*h}
-                  stroke="#00897b" strokeWidth={2/zoomLevel} strokeDasharray={`${6/zoomLevel},${4/zoomLevel}`} opacity="0.85"/>
+                  stroke="#00897b" strokeWidth={2} strokeDasharray="6,4" opacity="0.85"/>
               )
             })()}
           </svg>
@@ -910,34 +983,18 @@ function CalibrateScreen({ image, jobName, onDone }) {
       </div>
 
       {/* Zoomable blueprint - max height */}
-      <ZoomableBlueprint onTap={handleTap} style={{flex:1,minHeight:0,maxHeight:'60vh'}} onZoomChange={setZoomLevel}>
+      <ZoomableBlueprint onTap={handleTap} style={{flex:1,minHeight:0,maxHeight:'60vh'}} onZoomChange={setZoomLevel}
+        renderOverlay={toScreen => (
+          <>
+            {points.map((pt,i) => {
+              const { x, y } = toScreen(pt.x, pt.y, imgRef.current?.clientWidth||400, imgRef.current?.clientHeight||300)
+              return renderCrosshairMarker(x, y, i===0 ? '#e53935' : '#1565c0', i, false, i===0?'A':'B')
+            })}
+          </>
+        )}>
         <div style={{position:'relative'}}>
           <img ref={imgRef} src={image.src} alt="Blueprint"
             style={{width:'100%',display:'block',userSelect:'none'}} draggable={false} />
-          <svg style={{position:'absolute',inset:0,width:'100%',height:'100%',pointerEvents:'none'}}>
-{/* dots only, no line */}
-            {points.map((pt,i) => {
-              const w = imgRef.current?.clientWidth || 400
-              const h = imgRef.current?.clientHeight || 300
-              // Absolute pixel coords — same system as the image
-              const arm = 18 / zoomLevel
-              const sw  = 2.8 / zoomLevel
-              const col = i===0 ? '#e53935' : '#1565c0'
-              const cx  = pt.x * w
-              const cy  = pt.y * h
-              return (
-                <g key={i}>
-                  <line x1={cx-arm} y1={cy} x2={cx+arm} y2={cy} stroke="#fff" strokeWidth={sw*2.5}/>
-                  <line x1={cx} y1={cy-arm} x2={cx} y2={cy+arm} stroke="#fff" strokeWidth={sw*2.5}/>
-                  <line x1={cx-arm} y1={cy} x2={cx+arm} y2={cy} stroke={col} strokeWidth={sw}/>
-                  <line x1={cx} y1={cy-arm} x2={cx} y2={cy+arm} stroke={col} strokeWidth={sw}/>
-                  <text x={cx} y={cy} dy={-arm*1.6} textAnchor="middle" fill={col}
-                    fontSize={Math.max(13/zoomLevel, 9)} fontWeight="bold"
-                    style={{filter:'drop-shadow(0 1px 2px rgba(255,255,255,0.9))'}}>{i===0?'A':'B'}</text>
-                </g>
-              )
-            })}
-          </svg>
         </div>
       </ZoomableBlueprint>
 
@@ -1192,7 +1249,19 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
       </div>
 
       {/* Zoomable pinch-to-zoom drawing area - fills all available space */}
-      <ZoomableBlueprint ref={blueprintCtrlRef} onTap={e=>{if(!naming&&!identifying)handleTap(e)}} style={{flex:1,maxHeight:'none',minHeight:0}} onZoomChange={setZoomLevel}>
+      <ZoomableBlueprint ref={blueprintCtrlRef} onTap={e=>{if(!naming&&!identifying)handleTap(e)}} style={{flex:1,maxHeight:'none',minHeight:0}} onZoomChange={setZoomLevel}
+        renderOverlay={toScreen => (
+          <>
+            {!naming && points.map((pt,i) => {
+              const { x, y } = toScreen(pt.x, pt.y, imgSize.w||400, imgSize.h||300)
+              return renderCrosshairMarker(x, y, color.border, i, i===0)
+            })}
+            {movingRoomPoints && movingRoomPoints.map((pt,i) => {
+              const { x, y } = toScreen(pt.x, pt.y, imgSize.w||400, imgSize.h||300)
+              return renderMoveCornerMarker(x, y, i===selectedCornerIdx, i)
+            })}
+          </>
+        )}>
         <div style={{position:'relative'}}>
           <img ref={imgRef} src={image.src} alt="Blueprint"
             style={{width:'100%',display:'block',userSelect:'none'}} draggable={false}
@@ -1202,13 +1271,12 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
               const c = centroid(room.points)
               const w = imgSize.w || 400
               const { name: baseName, sqft: baseSqft } = roomLabelFontSizes(room, imgSize.w||400, imgSize.h||300)
-              const fs1 = Math.max(baseName/zoomLevel, 3)   // name font px
-              const fs2 = Math.max(baseSqft/zoomLevel, 2.5)   // sqft font px
+              const fs1 = Math.max(baseName, 10)   // name font px
+              const fs2 = Math.max(baseSqft, 8)   // sqft font px
               const dy2 = Math.max(fs1*0.85, 4)  // offset in px
-              const sw  = Math.max(1.5/zoomLevel, 0.4)
               return (
                 <g key={room.id}>
-                  <polygon points={toSvgPoints(room.points, imgSize.w, imgSize.h)} fill={(room.color||ROOM_COLORS[0]).fill} stroke={(room.color||ROOM_COLORS[0]).border} strokeWidth={`${(2/zoomLevel/((imgSize.w||400)))*100}%`}/>
+                  <polygon points={toSvgPoints(room.points, imgSize.w, imgSize.h)} fill={(room.color||ROOM_COLORS[0]).fill} stroke={(room.color||ROOM_COLORS[0]).border} strokeWidth={2}/>
                   <text x={`${c.x*100}%`} y={`${c.y*100}%`}
                     textAnchor="middle" dominantBaseline="middle" fill="#fff" fontSize={fs1} fontWeight="800"
                     style={{filter:'drop-shadow(0 1px 2px rgba(0,0,0,0.8))'}}>
@@ -1223,58 +1291,14 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
               )
             })}
             {points.length>=2 && (
-              <polyline points={toSvgPoints(points, imgSize.w, imgSize.h)} fill="none" stroke={color.border} strokeWidth={`${0.15/zoomLevel}%`} strokeDasharray={`${Math.max(6/zoomLevel,2)},${Math.max(3/zoomLevel,1)}`}/>
+              <polyline points={toSvgPoints(points, imgSize.w, imgSize.h)} fill="none" stroke={color.border} strokeWidth={2} strokeDasharray="6,3"/>
             )}
             {naming && (
-              <polygon points={toSvgPoints(points, imgSize.w, imgSize.h)} fill={color.fill} stroke={color.border} strokeWidth={`${(2/zoomLevel/((imgSize.w||400)))*100}%`}/>
+              <polygon points={toSvgPoints(points, imgSize.w, imgSize.h)} fill={color.fill} stroke={color.border} strokeWidth={2}/>
             )}
-            {!naming && points.map((pt,i) => {
-              const w = imgSize.w > 0 ? imgSize.w : 400
-              const h = imgSize.h > 0 ? imgSize.h : 300
-              const arm = 15 / zoomLevel
-              const sw  = 2.3 / zoomLevel
-              const col = color.border
-              const cx  = pt.x * w
-              const cy  = pt.y * h
-              const isFirst = i === 0
-              return (
-                <g key={i}>
-                  <line x1={cx-arm} y1={cy} x2={cx+arm} y2={cy} stroke="#fff" strokeWidth={sw*2.5}/>
-                  <line x1={cx} y1={cy-arm} x2={cx} y2={cy+arm} stroke="#fff" strokeWidth={sw*2.5}/>
-                  <line x1={cx-arm} y1={cy} x2={cx+arm} y2={cy} stroke={col} strokeWidth={sw}/>
-                  <line x1={cx} y1={cy-arm} x2={cx} y2={cy+arm} stroke={col} strokeWidth={sw}/>
-                  <circle cx={cx} cy={cy} r={Math.max(2.2/zoomLevel, 1.2)} fill={col} stroke="#fff" strokeWidth={sw*0.6}/>
-                  {isFirst && (
-                    <circle cx={cx} cy={cy} r={arm*1.4} fill="none" stroke={col}
-                      strokeWidth={sw*0.7} strokeDasharray={`${arm},${arm*0.5}`}/>
-                  )}
-                </g>
-              )
-            })}
-            {movingRoomPoints && (() => {
-              const w = imgSize.w > 0 ? imgSize.w : 400
-              const h = imgSize.h > 0 ? imgSize.h : 300
-              return (
-                <g>
-                  <polygon points={toSvgPoints(movingRoomPoints, w, h)} fill="rgba(0,150,136,0.18)" stroke="#00695c" strokeWidth={`${(2/zoomLevel/((imgSize.w||400)))*100}%`} strokeDasharray={`${Math.max(6/zoomLevel,2)},${Math.max(3/zoomLevel,1)}`}/>
-                  {movingRoomPoints.map((pt, i) => {
-                    const isSel = i === selectedCornerIdx
-                    const cx = pt.x * w
-                    const cy = pt.y * h
-                    const r  = (isSel ? 10 : 6.5) / zoomLevel
-                    return (
-                      <g key={i}>
-                        {isSel && (
-                          <circle cx={cx} cy={cy} r={(20/zoomLevel)} fill="none" stroke="#ff6d00"
-                            strokeWidth={2.5/zoomLevel} strokeDasharray={`${5/zoomLevel},${4/zoomLevel}`}/>
-                        )}
-                        <circle cx={cx} cy={cy} r={r} fill={isSel ? '#ff6d00' : '#00695c'} stroke="#fff" strokeWidth={2.5/zoomLevel}/>
-                      </g>
-                    )
-                  })}
-                </g>
-              )
-            })()}
+            {movingRoomPoints && (
+              <polygon points={toSvgPoints(movingRoomPoints, imgSize.w||400, imgSize.h||300)} fill="rgba(0,150,136,0.18)" stroke="#00695c" strokeWidth={2} strokeDasharray="6,3"/>
+            )}
           </svg>
         </div>
       </ZoomableBlueprint>
