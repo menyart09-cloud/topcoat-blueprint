@@ -1526,7 +1526,22 @@ function ResultsScreen({ image, rooms, jobName, onReset, onEdit }) {
         const c = centroid(room.points)
         const cx = toCanvasX(c.x)
         const cy = toCanvasY(c.y)
-        const { name: nameFS, sqft: sqftFS } = roomLabelFontSizes(room, cappedImgW, cappedImgH)
+        // Compute the room's box size in the CROPPED image's own pixel space —
+        // room.points are fractions of the full uncropped blueprint, so they must
+        // go through the same crop-aware transform used to draw the polygon itself,
+        // not be multiplied directly by cappedImgW (which is just the crop's size).
+        let rMinX=1, rMinY=1, rMaxX=0, rMaxY=0
+        room.points.forEach(p => {
+          if (p.x < rMinX) rMinX = p.x
+          if (p.y < rMinY) rMinY = p.y
+          if (p.x > rMaxX) rMaxX = p.x
+          if (p.y > rMaxY) rMaxY = p.y
+        })
+        const roomBoxWpx = toCanvasX(rMaxX) - toCanvasX(rMinX)
+        const roomBoxHpx = toCanvasY(rMaxY) - toCanvasY(rMinY)
+        const labelMetric = Math.sqrt(Math.max(roomBoxWpx * roomBoxHpx, 1))
+        const nameFS = Math.min(Math.max(labelMetric * 0.06, 12), 42)
+        const sqftFS = nameFS * 0.65
         ctx.fillStyle = room.color?.border || '#e53935'
         ctx.font = `bold ${nameFS}px Arial`
         ctx.textAlign = 'center'
