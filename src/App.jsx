@@ -101,7 +101,10 @@ function roomLabelFontSizes(room, imgWpx, imgHpx) {
   const boxW = (maxX - minX) * imgWpx
   const boxH = (maxY - minY) * imgHpx
   const metric = Math.sqrt(Math.max(boxW * boxH, 1))
-  const name = Math.min(Math.max(metric * 0.06, 12), 42)
+  // Cap scales with the image itself — a flat pixel cap looks tiny on a big
+  // desktop export or when a single room dominates most of the frame.
+  const maxCap = Math.max(imgWpx * 0.07, 24)
+  const name = Math.min(Math.max(metric * 0.06, 12), maxCap)
   return { name, sqft: name * 0.65 }
 }
 
@@ -316,7 +319,7 @@ async function straightenAndCropImage(src, angleRad) {
 
 // ── Save blueprint image to photo album ───────────────────────
 async function saveToPhotos(canvasEl, jobName) {
-  const filename = `${(jobName||'TopCoat').replace(/[^a-zA-Z0-9]/g,'-')}-blueprint.jpg`
+  const filename = `${(jobName||'TopCoat').replace(/[^a-zA-Z0-9]/g,'-')}-Report.jpg`
 
   // Build blob from canvas using toDataURL (more iOS-compatible than toBlob)
   const dataUrl = canvasEl.toDataURL('image/jpeg', 0.92)
@@ -1540,7 +1543,8 @@ function ResultsScreen({ image, rooms, jobName, onReset, onEdit }) {
         const roomBoxWpx = toCanvasX(rMaxX) - toCanvasX(rMinX)
         const roomBoxHpx = toCanvasY(rMaxY) - toCanvasY(rMinY)
         const labelMetric = Math.sqrt(Math.max(roomBoxWpx * roomBoxHpx, 1))
-        const nameFS = Math.min(Math.max(labelMetric * 0.06, 12), 42)
+        const labelMaxCap = Math.max(cappedImgW * 0.07, 24)
+        const nameFS = Math.min(Math.max(labelMetric * 0.06, 12), labelMaxCap)
         const sqftFS = nameFS * 0.65
         ctx.fillStyle = room.color?.border || '#e53935'
         ctx.font = `bold ${nameFS}px Arial`
