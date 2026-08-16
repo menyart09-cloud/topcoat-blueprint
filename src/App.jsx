@@ -4,7 +4,7 @@ const ORANGE = '#0077B6'
 const DARK   = '#1c1c2e'
 
 // Quick-pick coating types for the Results screen — anything else can be typed in
-const COATING_TYPES = ['Epoxy', 'Concrete Overlay', 'Granite Overlay', 'Rubber Playground', 'Rock Carpet']
+const COATING_TYPES = ['Epoxy', 'Concrete Overlay', 'Granite Overlay', 'Rubber', 'Rock Carpet']
 
 const ROOM_COLORS = [
   { fill: 'rgba(255,80,80,0.35)',   border: '#e53935', solid: '#e53935' },
@@ -85,6 +85,25 @@ function toSvgPoints(points, w, h) {
 
 // ── Clamp a fractional image coordinate to [0,1] ────────────────
 function clamp01(v) { return Math.min(1, Math.max(0, v)) }
+
+// ── Room label font size, proportional to how big the room renders ──
+// Bigger room on screen = bigger label, small room = small label,
+// clamped so neither a huge room's text nor a tiny closet's text
+// gets absurd. Returns { name, sqft } font sizes in px.
+function roomLabelFontSizes(room, imgWpx, imgHpx) {
+  let minX=1, minY=1, maxX=0, maxY=0
+  room.points.forEach(p => {
+    if (p.x < minX) minX = p.x
+    if (p.y < minY) minY = p.y
+    if (p.x > maxX) maxX = p.x
+    if (p.y > maxY) maxY = p.y
+  })
+  const boxW = (maxX - minX) * imgWpx
+  const boxH = (maxY - minY) * imgHpx
+  const metric = Math.sqrt(Math.max(boxW * boxH, 1))
+  const name = Math.min(Math.max(metric * 0.06, 12), 42)
+  return { name, sqft: name * 0.65 }
+}
 
 // ── PDF to high-res image ─────────────────────────────────────
 // ── Ensure pdf.js library is loaded (shared by all PDF rendering) ─
@@ -1179,9 +1198,10 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
             {rooms.filter(r => r.id !== movingRoomId).map(room => {
               const c = centroid(room.points)
               const w = imgSize.w || 400
-              const fs1 = Math.max(11/zoomLevel, 3)   // name font px
-              const fs2 = Math.max(9/zoomLevel, 2.5)   // sqft font px
-              const dy2 = Math.max(12/zoomLevel, 4)  // offset in px
+              const { name: baseName, sqft: baseSqft } = roomLabelFontSizes(room, imgSize.w||400, imgSize.h||300)
+              const fs1 = Math.max(baseName/zoomLevel, 3)   // name font px
+              const fs2 = Math.max(baseSqft/zoomLevel, 2.5)   // sqft font px
+              const dy2 = Math.max(fs1*0.85, 4)  // offset in px
               const sw  = Math.max(1.5/zoomLevel, 0.4)
               return (
                 <g key={room.id}>
@@ -1208,23 +1228,22 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
             {!naming && points.map((pt,i) => {
               const w = imgSize.w > 0 ? imgSize.w : 400
               const h = imgSize.h > 0 ? imgSize.h : 300
-              // Very obvious crosshairs (long arms)
-              const arm = 22 / zoomLevel
-              const sw  = 3.2 / zoomLevel
+              const arm = 15 / zoomLevel
+              const sw  = 2.3 / zoomLevel
               const col = color.border
               const cx  = pt.x * w
               const cy  = pt.y * h
               const isFirst = i === 0
               return (
                 <g key={i}>
-                  <line x1={cx-arm} y1={cy} x2={cx+arm} y2={cy} stroke="#fff" strokeWidth={sw*3}/>
-                  <line x1={cx} y1={cy-arm} x2={cx} y2={cy+arm} stroke="#fff" strokeWidth={sw*3}/>
+                  <line x1={cx-arm} y1={cy} x2={cx+arm} y2={cy} stroke="#fff" strokeWidth={sw*2.5}/>
+                  <line x1={cx} y1={cy-arm} x2={cx} y2={cy+arm} stroke="#fff" strokeWidth={sw*2.5}/>
                   <line x1={cx-arm} y1={cy} x2={cx+arm} y2={cy} stroke={col} strokeWidth={sw}/>
                   <line x1={cx} y1={cy-arm} x2={cx} y2={cy+arm} stroke={col} strokeWidth={sw}/>
-                  <circle cx={cx} cy={cy} r={Math.max(2.8/zoomLevel, 1.5)} fill={col} stroke="#fff" strokeWidth={sw*0.6}/>
+                  <circle cx={cx} cy={cy} r={Math.max(2.2/zoomLevel, 1.2)} fill={col} stroke="#fff" strokeWidth={sw*0.6}/>
                   {isFirst && (
-                    <circle cx={cx} cy={cy} r={arm*1.5} fill="none" stroke={col}
-                      strokeWidth={sw*0.8} strokeDasharray={`${arm},${arm*0.5}`}/>
+                    <circle cx={cx} cy={cy} r={arm*1.4} fill="none" stroke={col}
+                      strokeWidth={sw*0.7} strokeDasharray={`${arm},${arm*0.5}`}/>
                   )}
                 </g>
               )
@@ -1507,13 +1526,14 @@ function ResultsScreen({ image, rooms, jobName, onReset, onEdit }) {
         const c = centroid(room.points)
         const cx = toCanvasX(c.x)
         const cy = toCanvasY(c.y)
+        const { name: nameFS, sqft: sqftFS } = roomLabelFontSizes(room, cappedImgW, cappedImgH)
         ctx.fillStyle = room.color?.border || '#e53935'
-        ctx.font = 'bold 16px Arial'
+        ctx.font = `bold ${nameFS}px Arial`
         ctx.textAlign = 'center'
-        ctx.fillText(room.name || 'Room', cx, cy - 4)
-        ctx.font = '13px Arial'
+        ctx.fillText(room.name || 'Room', cx, cy - nameFS * 0.25)
+        ctx.font = `${sqftFS}px Arial`
         ctx.fillStyle = '#fff'
-        ctx.fillText(`${(room.sqft||0).toLocaleString()} sf`, cx, cy + 14)
+        ctx.fillText(`${(room.sqft||0).toLocaleString()} sf`, cx, cy + sqftFS * 0.9)
       })
 
       // ── Legend section ────────────────────────────────────────
@@ -1669,21 +1689,24 @@ function ResultsScreen({ image, rooms, jobName, onReset, onEdit }) {
             style={{width:'100%',display:'block',borderRadius:8}}
             onLoad={()=>setImgSize({w:blueprintRef.current.clientWidth,h:blueprintRef.current.clientHeight})} />
           <svg style={{position:'absolute',inset:0,width:'100%',height:'100%',pointerEvents:'none'}}>
-            {rooms.map(room => (
+            {rooms.map(room => {
+              const { name: nameFS, sqft: sqftFS } = roomLabelFontSizes(room, imgSize.w||400, imgSize.h||300)
+              return (
               <g key={room.id}>
                 <polygon points={toSvgPoints(room.points,imgSize.w,imgSize.h)} fill={(room.color||ROOM_COLORS[0]).fill} stroke={(room.color||ROOM_COLORS[0]).border} strokeWidth="2"/>
                 <text x={`${centroid(room.points).x*100}%`} y={`${centroid(room.points).y*100}%`}
-                  textAnchor="middle" dominantBaseline="middle" fill="#fff" fontSize="10" fontWeight="800"
+                  textAnchor="middle" dominantBaseline="middle" fill="#fff" fontSize={nameFS} fontWeight="800"
                   style={{filter:'drop-shadow(0 1px 3px rgba(0,0,0,0.9))'}}>
                   {room.name}
                 </text>
-                <text x={`${centroid(room.points).x*100}%`} y={`${centroid(room.points).y*100}%`} dy="13"
-                  textAnchor="middle" dominantBaseline="middle" fill="rgba(255,255,255,0.9)" fontSize="9" fontWeight="600"
+                <text x={`${centroid(room.points).x*100}%`} y={`${centroid(room.points).y*100}%`} dy={nameFS*0.9}
+                  textAnchor="middle" dominantBaseline="middle" fill="rgba(255,255,255,0.9)" fontSize={sqftFS} fontWeight="600"
                   style={{filter:'drop-shadow(0 1px 3px rgba(0,0,0,0.9))'}}>
                   {room.sqft.toLocaleString()} sf
                 </text>
               </g>
-            ))}
+              )
+            })}
           </svg>
         </div>
       </div>
