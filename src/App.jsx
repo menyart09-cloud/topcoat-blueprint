@@ -169,15 +169,17 @@ function renderMoveCornerMarker(x, y, isSelected, key, accentColor) {
     )
   }
   // Selected: hollow crosshair rather than a solid dot, so the blueprint
-  // line underneath stays visible while nudging it into position.
-  const arm = 15, thick = 2
+  // line underneath stays visible while nudging it into position. Kept
+  // deliberately small, and the selection ring is faint, since this sits
+  // directly over the exact spot you're trying to align to.
+  const arm = 9, thick = 1.5
   return (
     <div key={key} style={{ position:'absolute', left:0, top:0 }}>
-      <div style={{ position:'absolute', left:x-arm, top:y-thick/2, width:arm*2, height:thick+2.5, background:'#fff' }}/>
-      <div style={{ position:'absolute', left:x-thick/2, top:y-arm, width:thick+2.5, height:arm*2, background:'#fff' }}/>
+      <div style={{ position:'absolute', left:x-arm, top:y-thick/2, width:arm*2, height:thick+1.5, background:'#fff' }}/>
+      <div style={{ position:'absolute', left:x-thick/2, top:y-arm, width:thick+1.5, height:arm*2, background:'#fff' }}/>
       <div style={{ position:'absolute', left:x-arm, top:y-thick/2, width:arm*2, height:thick, background:col }}/>
       <div style={{ position:'absolute', left:x-thick/2, top:y-arm, width:thick, height:arm*2, background:col }}/>
-      <div style={{ position:'absolute', left:x-22, top:y-22, width:44, height:44, borderRadius:'50%', border:`2px dashed ${col}` }}/>
+      <div style={{ position:'absolute', left:x-16, top:y-16, width:32, height:32, borderRadius:'50%', border:`1.5px dashed ${col}`, opacity:0.4 }}/>
     </div>
   )
 }
@@ -1425,6 +1427,16 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
       <ZoomableBlueprint ref={blueprintCtrlRef} onTap={e=>{if(!naming&&!identifying)handleTap(e)}} style={{flex:1,maxHeight:'none',minHeight:0}} onZoomChange={setZoomLevel}
         renderOverlay={toScreen => (
           <>
+            {cornerToolPoints && (
+              <svg style={{position:'absolute',inset:0,width:'100%',height:'100%',pointerEvents:'none',overflow:'visible'}}>
+                <polygon points={cornerToolPoints.map(p => { const s = toScreen(p.x, p.y, imgSize.w||400, imgSize.h||300); return `${s.x},${s.y}` }).join(' ')}
+                  fill="none" stroke={cornerToolColor[cornerTool]} strokeWidth={1.5} strokeDasharray="6,3" opacity={0.75}/>
+                {addDetourActive && addDetourStart && (
+                  <polyline points={[addDetourStart.point, ...addDetourPoints].map(p => { const s = toScreen(p.x, p.y, imgSize.w||400, imgSize.h||300); return `${s.x},${s.y}` }).join(' ')}
+                    fill="none" stroke="#f57f17" strokeWidth={2} strokeDasharray="5,4"/>
+                )}
+              </svg>
+            )}
             {!naming && points.map((pt,i) => {
               const { x, y } = toScreen(pt.x, pt.y, imgSize.w||400, imgSize.h||300)
               return renderCrosshairMarker(x, y, color.border, i, i===0)
@@ -1488,10 +1500,7 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
               <polygon points={toSvgPoints(points, imgSize.w, imgSize.h)} fill={color.fill} stroke={color.border} strokeWidth={2}/>
             )}
             {cornerToolPoints && (
-              <polygon points={toSvgPoints(cornerToolPoints, imgSize.w||400, imgSize.h||300)} fill={`${cornerToolColor[cornerTool]}2e`} stroke={cornerToolColor[cornerTool]} strokeWidth={2} strokeDasharray="6,3"/>
-            )}
-            {addDetourActive && addDetourStart && (
-              <polyline points={toSvgPoints([addDetourStart.point, ...addDetourPoints], imgSize.w||400, imgSize.h||300)} fill="none" stroke="#f57f17" strokeWidth={2.5} strokeDasharray="5,4"/>
+              <polygon points={toSvgPoints(cornerToolPoints, imgSize.w||400, imgSize.h||300)} fill={`${cornerToolColor[cornerTool]}2e`} stroke="none"/>
             )}
           </svg>
         </div>
