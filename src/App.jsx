@@ -70,6 +70,18 @@ function polygonPerimeterFt(points, fracPerFt, aspectRatio) {
   return perim
 }
 
+// ── Nearest point on a line segment (for tap-to-insert-corner) ──
+function nearestPointOnSegment(px, py, ax, ay, bx, by) {
+  const abx = bx-ax, aby = by-ay
+  const apx = px-ax, apy = py-ay
+  const abLenSq = abx*abx + aby*aby
+  let t = abLenSq > 1e-12 ? (apx*abx + apy*aby) / abLenSq : 0
+  t = Math.max(0, Math.min(1, t))
+  const x = ax + abx*t, y = ay + aby*t
+  const dx = px-x, dy = py-y
+  return { x, y, dist: Math.sqrt(dx*dx + dy*dy) }
+}
+
 // ── Centroid ─────────────────────────────────────────────────
 function centroid(points) {
   return {
@@ -108,16 +120,31 @@ function renderCrosshairMarker(x, y, color, key, isFirst, label) {
 }
 
 // ── Move-corner marker (plain CSS, same overlay approach) ──────
-function renderMoveCornerMarker(x, y, isSelected, key) {
-  const r = isSelected ? 9 : 5.5
-  const col = isSelected ? '#ff6d00' : '#00695c'
+function renderMoveCornerMarker(x, y, isSelected, key, accentColor) {
+  const col = accentColor || '#00695c'
+  if (!isSelected) {
+    return (
+      <div key={key} style={{ position:'absolute', left:x-5.5, top:y-5.5, width:11, height:11, borderRadius:'50%', background:col, border:'2px solid #fff' }}/>
+    )
+  }
+  // Selected: hollow crosshair rather than a solid dot, so the blueprint
+  // line underneath stays visible while nudging it into position.
+  const arm = 15, thick = 2
   return (
     <div key={key} style={{ position:'absolute', left:0, top:0 }}>
-      {isSelected && (
-        <div style={{ position:'absolute', left:x-17, top:y-17, width:34, height:34, borderRadius:'50%', border:'2px dashed #ff6d00' }}/>
-      )}
-      <div style={{ position:'absolute', left:x-r, top:y-r, width:r*2, height:r*2, borderRadius:'50%', background:col, border:'2px solid #fff' }}/>
+      <div style={{ position:'absolute', left:x-arm, top:y-thick/2, width:arm*2, height:thick+2.5, background:'#fff' }}/>
+      <div style={{ position:'absolute', left:x-thick/2, top:y-arm, width:thick+2.5, height:arm*2, background:'#fff' }}/>
+      <div style={{ position:'absolute', left:x-arm, top:y-thick/2, width:arm*2, height:thick, background:col }}/>
+      <div style={{ position:'absolute', left:x-thick/2, top:y-arm, width:thick, height:arm*2, background:col }}/>
+      <div style={{ position:'absolute', left:x-22, top:y-22, width:44, height:44, borderRadius:'50%', border:`2px dashed ${col}` }}/>
     </div>
+  )
+}
+
+// ── Edge hint marker (tap anywhere along the edge to add a corner there) ──
+function renderEdgeHintMarker(x, y, key) {
+  return (
+    <div key={key} style={{ position:'absolute', left:x-6, top:y-6, width:12, height:12, borderRadius:'50%', background:'rgba(255,255,255,0.85)', border:'1.5px solid #f57f17' }}/>
   )
 }
 
@@ -903,7 +930,7 @@ function StraightenScreen({ image, jobName, onDone, onSkip }) {
             {points.length>=2?'✓ Point 2 set':'Tap point 2'}
           </div>
           {points.length>0 && (
-            <button onClick={()=>setPoints([])} style={{padding:'6px 10px',background:'transparent',border:'1px solid #ddd',borderRadius:6,fontSize:12,color:'#888',cursor:'pointer',flexShrink:0}}>↺</button>
+            <button onClick={()=>setPoints(p=>p.slice(0,-1))} style={{padding:'6px 10px',background:'transparent',border:'1px solid #ddd',borderRadius:6,fontSize:12,color:'#888',cursor:'pointer',flexShrink:0}}>↺</button>
           )}
         </div>
 
@@ -1021,7 +1048,7 @@ function CalibrateScreen({ image, jobName, onDone }) {
             {points.length>=2?'✓ B set':'Tap B'}
           </div>
           {points.length>0 && (
-            <button onClick={()=>setPoints([])} style={{padding:'6px 10px',background:'transparent',border:'1px solid #ddd',borderRadius:6,fontSize:12,color:'#888',cursor:'pointer',flexShrink:0}}>↺</button>
+            <button onClick={()=>setPoints(p=>p.slice(0,-1))} style={{padding:'6px 10px',background:'transparent',border:'1px solid #ddd',borderRadius:6,fontSize:12,color:'#888',cursor:'pointer',flexShrink:0}}>↺</button>
           )}
         </div>
         {/* Distance input — separate ft and in fields for mobile keypad */}
@@ -1063,10 +1090,15 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
   const [editingColor,        setEditingColor]        = useState(null)
   const [editingName,         setEditingName]         = useState('')
   const [editingOriginalRoom, setEditingOriginalRoom] = useState(null)
-  // Move Corner: nudging a single corner of an already-closed room
-  const [movingRoomId,     setMovingRoomId]     = useState(null)
-  const [movingRoomPoints, setMovingRoomPoints] = useState(null)
-  const [selectedCornerIdx, setSelectedCornerIdx] = useState(null)
+  // Corner tools: Move / Add / Delete, all working on a copy of one room's points
+  const [cornerTool,         setCornerTool]         = useState(null) // 'move' | 'add' | 'delete' | null
+  const [cornerToolRoomId,   setCornerToolRoomId]   = useState(null)
+  const [cornerToolPoints,   setCornerToolPoints]   = useState(null)
+  const [cornerToolOriginal, setCornerToolOriginal] = useState(null)
+  const [selectedCornerIdx,  setSelectedCornerIdx]  = useState(null)
+  const [moveIncrement,      setMoveIncrement]      = useState(1) // inches: 1, 6, or 12
+  // Edit Room bubble — which room's tool menu is open
+  const [editBubbleRoom, setEditBubbleRoom] = useState(null)
   const imgRef = useRef()
   const containerRef = useRef()
   const blueprintCtrlRef = useRef()
@@ -1089,69 +1121,116 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
     }
   }
 
-  // ── Move Corner: hit-test a tap against the room's corners ─────
+  // ── Corner tools: hit-test / auto-center on a corner ────────────
   function centerOnCorner(pts, idx) {
     if (!imgRef.current || !blueprintCtrlRef.current) return
     const p = pts[idx]
     const baseW = imgRef.current.clientWidth
     const baseH = imgRef.current.clientHeight
-    const targetZoom = Math.max(zoomLevel, 5)
+    const targetZoom = Math.max(zoomLevel, 8)
     blueprintCtrlRef.current.centerOn(p.x * baseW, p.y * baseH, targetZoom)
   }
 
-  function handleMoveTap(e) {
-    const pt = getPoint(e)
-    if (!pt || !imgRef.current || !movingRoomPoints) return
-    const rect = imgRef.current.getBoundingClientRect()
+  function hitTestCorner(pt, pts, rect) {
     const thresh = 30 / rect.width
     let bestIdx = -1, bestDist = Infinity
-    movingRoomPoints.forEach((p, idx) => {
+    pts.forEach((p, idx) => {
       const dx = pt.x - p.x, dy = pt.y - p.y
       const d = Math.sqrt(dx*dx + dy*dy)
       if (d < thresh && d < bestDist) { bestDist = d; bestIdx = idx }
     })
-    if (bestIdx >= 0) {
-      setSelectedCornerIdx(bestIdx)
-      centerOnCorner(movingRoomPoints, bestIdx)
+    return bestIdx
+  }
+
+  function handleCornerToolTap(e) {
+    const pt = getPoint(e)
+    if (!pt || !imgRef.current || !cornerToolPoints) return
+    const rect = imgRef.current.getBoundingClientRect()
+
+    if (cornerTool === 'move' || cornerTool === 'delete') {
+      const idx = hitTestCorner(pt, cornerToolPoints, rect)
+      if (idx >= 0) {
+        setSelectedCornerIdx(idx)
+        centerOnCorner(cornerToolPoints, idx)
+      }
+      return
+    }
+
+    if (cornerTool === 'add') {
+      // Add Corner only reacts to taps on a line — inserts a new corner
+      // exactly where tapped, no selection/zoom, just keep tapping to add more.
+      const edgeThresh = 22 / rect.width
+      let bestEdge = -1, bestEdgeDist = Infinity, bestEdgePoint = null
+      const n = cornerToolPoints.length
+      for (let i = 0; i < n; i++) {
+        const a = cornerToolPoints[i], b = cornerToolPoints[(i+1) % n]
+        const near = nearestPointOnSegment(pt.x, pt.y, a.x, a.y, b.x, b.y)
+        if (near.dist < edgeThresh && near.dist < bestEdgeDist) {
+          bestEdgeDist = near.dist; bestEdge = i; bestEdgePoint = near
+        }
+      }
+      if (bestEdge >= 0) {
+        const insertIdx = bestEdge + 1
+        const newPoint = { x: bestEdgePoint.x, y: bestEdgePoint.y }
+        setCornerToolPoints(prev => {
+          const next = [...prev]
+          next.splice(insertIdx, 0, newPoint)
+          return next
+        })
+      }
     }
   }
 
-  const NUDGE_INCHES = 1
-  function nudgeCorner(dxIn, dyIn) {
+  function nudgeCorner(dir) {
     if (selectedCornerIdx == null) return
-    setMovingRoomPoints(prev => {
+    const deltas = { up:[0,-1], down:[0,1], left:[-1,0], right:[1,0] }
+    const [dxDir, dyDir] = deltas[dir]
+    setCornerToolPoints(prev => {
       const next = [...prev]
       const p = next[selectedCornerIdx]
-      const fracDx = (dxIn / 12) * fracPerFt
-      const fracDy = (dyIn / 12) * fracPerFt * aspectRatio
+      const fracDx = (dxDir * moveIncrement / 12) * fracPerFt
+      const fracDy = (dyDir * moveIncrement / 12) * fracPerFt * aspectRatio
       next[selectedCornerIdx] = { x: clamp01(p.x + fracDx), y: clamp01(p.y + fracDy) }
       centerOnCorner(next, selectedCornerIdx)
       return next
     })
   }
 
-  function startMoveRoom(room) {
-    if (naming || identifying || points.length > 0 || movingRoomId) return
-    setMovingRoomId(room.id)
-    setMovingRoomPoints([...room.points])
+  function deleteSelectedCorner() {
+    if (selectedCornerIdx == null || !cornerToolPoints || cornerToolPoints.length <= 3) return
+    setCornerToolPoints(prev => prev.filter((_, i) => i !== selectedCornerIdx))
     setSelectedCornerIdx(null)
   }
 
-  function finishMoveRoom() {
-    if (!movingRoomId || !movingRoomPoints) return
-    const sqft  = Math.round(polygonAreaFt(movingRoomPoints, fracPerFt, aspectRatio))
-    const perim = Math.round(polygonPerimeterFt(movingRoomPoints, fracPerFt, aspectRatio))
-    onUpdateRoom(movingRoomId, { points: [...movingRoomPoints], sqft, perim })
-    setMovingRoomId(null); setMovingRoomPoints(null); setSelectedCornerIdx(null)
+  function startCornerTool(room, tool) {
+    if (naming || identifying || points.length > 0 || cornerTool || editingRoomId) return
+    setCornerToolRoomId(room.id)
+    setCornerToolPoints([...room.points])
+    setCornerToolOriginal(room)
+    setSelectedCornerIdx(null)
+    setCornerTool(tool)
+    setEditBubbleRoom(null)
+    onRemoveRoom(room.id)
   }
 
-  function cancelMoveRoom() {
-    setMovingRoomId(null); setMovingRoomPoints(null); setSelectedCornerIdx(null)
+  function finishCornerTool() {
+    if (!cornerToolRoomId || !cornerToolPoints) return
+    const sqft  = Math.round(polygonAreaFt(cornerToolPoints, fracPerFt, aspectRatio))
+    const perim = Math.round(polygonPerimeterFt(cornerToolPoints, fracPerFt, aspectRatio))
+    onAddRoom({ ...cornerToolOriginal, points: [...cornerToolPoints], sqft, perim })
+    setCornerTool(null); setCornerToolRoomId(null); setCornerToolPoints(null)
+    setCornerToolOriginal(null); setSelectedCornerIdx(null)
+  }
+
+  function cancelCornerTool() {
+    if (cornerToolOriginal) onAddRoom(cornerToolOriginal)
+    setCornerTool(null); setCornerToolRoomId(null); setCornerToolPoints(null)
+    setCornerToolOriginal(null); setSelectedCornerIdx(null)
   }
 
   async function handleTap(e) {
     if (naming || identifying) return
-    if (movingRoomId) { handleMoveTap(e); return }
+    if (cornerTool) { handleCornerToolTap(e); return }
     if (!imgRef.current) return
     // ZoomableBlueprint passes plain {clientX, clientY} object
     const pt = getPoint(e)
@@ -1245,13 +1324,20 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
     return () => window.removeEventListener('resize', update)
   }, [])
 
+  const cornerToolBanner = {
+    move:   selectedCornerIdx==null ? '🎯 MOVE CORNER — tap a corner to nudge' : '🎯 MOVE CORNER — use the arrows to nudge it',
+    add:    '➕ ADD CORNER — tap a line to add a corner there',
+    delete: selectedCornerIdx==null ? '🗑️ DELETE CORNER — tap a corner to remove' : '🗑️ DELETE CORNER — tap Delete below to confirm',
+  }
+  const cornerToolColor = { move:'#00695c', add:'#f57f17', delete:'#c62828' }
+
   return (
     <div style={{ display:'flex', flexDirection:'column', height:'calc(100vh - 60px)' }}>
-      <div style={{background: identifying ? '#ff8f00' : movingRoomId ? '#00695c' : color.solid, padding:'9px 16px', color:'#fff', display:'flex', alignItems:'center', gap:8, flexShrink:0}}>
+      <div style={{background: identifying ? '#ff8f00' : cornerTool ? cornerToolColor[cornerTool] : color.solid, padding:'9px 16px', color:'#fff', display:'flex', alignItems:'center', gap:8, flexShrink:0}}>
         {jobName && <span style={{fontSize:11,opacity:0.8,flexShrink:0}}>{jobName} ·</span>}
         <span style={{fontWeight:700,fontSize:14}}>
-          {movingRoomId
-            ? (selectedCornerIdx==null ? '🎯 MOVE CORNER — tap the corner to nudge' : '🎯 MOVE CORNER — use the arrows to nudge it')
+          {cornerTool
+            ? cornerToolBanner[cornerTool]
             : naming
               ? `✓ ${naming.sqft.toLocaleString()} sf · ${naming.perim}ft — pick a name below`
               : points.length===0
@@ -1268,9 +1354,19 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
               const { x, y } = toScreen(pt.x, pt.y, imgSize.w||400, imgSize.h||300)
               return renderCrosshairMarker(x, y, color.border, i, i===0)
             })}
-            {movingRoomPoints && movingRoomPoints.map((pt,i) => {
+            {cornerTool === 'add' && cornerToolPoints && cornerToolPoints.map((a,i) => {
+              const b = cornerToolPoints[(i+1) % cornerToolPoints.length]
+              const mid = { x: (a.x+b.x)/2, y: (a.y+b.y)/2 }
+              const { x, y } = toScreen(mid.x, mid.y, imgSize.w||400, imgSize.h||300)
+              return renderEdgeHintMarker(x, y, `edge-${i}`)
+            })}
+            {(cornerTool === 'move' || cornerTool === 'delete') && cornerToolPoints && cornerToolPoints.map((pt,i) => {
               const { x, y } = toScreen(pt.x, pt.y, imgSize.w||400, imgSize.h||300)
-              return renderMoveCornerMarker(x, y, i===selectedCornerIdx, i)
+              return renderMoveCornerMarker(x, y, i===selectedCornerIdx, i, cornerTool === 'delete' ? '#c62828' : '#00695c')
+            })}
+            {cornerTool === 'add' && cornerToolPoints && cornerToolPoints.map((pt,i) => {
+              const { x, y } = toScreen(pt.x, pt.y, imgSize.w||400, imgSize.h||300)
+              return renderMoveCornerMarker(x, y, false, `pt-${i}`, '#f57f17')
             })}
           </>
         )}>
@@ -1279,7 +1375,7 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
             style={{width:'100%',display:'block',userSelect:'none'}} draggable={false}
             onLoad={()=>setImgSize({w:imgRef.current.clientWidth,h:imgRef.current.clientHeight})} />
           <svg style={{position:'absolute',inset:0,width:'100%',height:'100%',pointerEvents:'none'}}>
-            {rooms.filter(r => r.id !== movingRoomId).map(room => {
+            {rooms.map(room => {
               const c = centroid(room.points)
               const w = imgSize.w || 400
               const { name: baseName, sqft: baseSqft } = roomLabelFontSizes(room, imgSize.w||400, imgSize.h||300)
@@ -1308,8 +1404,8 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
             {naming && (
               <polygon points={toSvgPoints(points, imgSize.w, imgSize.h)} fill={color.fill} stroke={color.border} strokeWidth={2}/>
             )}
-            {movingRoomPoints && (
-              <polygon points={toSvgPoints(movingRoomPoints, imgSize.w||400, imgSize.h||300)} fill="rgba(0,150,136,0.18)" stroke="#00695c" strokeWidth={2} strokeDasharray="6,3"/>
+            {cornerToolPoints && (
+              <polygon points={toSvgPoints(cornerToolPoints, imgSize.w||400, imgSize.h||300)} fill={`${cornerToolColor[cornerTool]}2e`} stroke={cornerToolColor[cornerTool]} strokeWidth={2} strokeDasharray="6,3"/>
             )}
           </svg>
         </div>
@@ -1348,7 +1444,7 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
       )}
 
       {/* Controls */}
-      {!naming && !movingRoomId && (
+      {!naming && !cornerTool && (
         <div style={{padding:'8px 12px', flexShrink:0, background:'#f4f4f2'}}>
           <div style={{display:'flex',gap:6,marginBottom:6}}>
             {points.length>=3 && (
@@ -1375,10 +1471,8 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
                       <div style={{fontSize:13,fontWeight:600,color:'#222',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{room.name}</div>
                       <div style={{fontSize:11,color:'#888'}}>{room.sqft.toLocaleString()} sf</div>
                     </div>
-                    <button onClick={()=>startEditRoom(room)} title="Add more corners"
+                    <button onClick={()=>setEditBubbleRoom(room)} title="Edit room"
                       style={{padding:'6px 9px',background:'#f0f0f0',border:'1px solid #ddd',borderRadius:6,fontSize:13,cursor:'pointer',flexShrink:0}}>✏️</button>
-                    <button onClick={()=>startMoveRoom(room)} title="Nudge a corner"
-                      style={{padding:'6px 9px',background:'#e0f2f1',border:'1px solid #80cbc4',borderRadius:6,fontSize:13,cursor:'pointer',flexShrink:0}}>🎯</button>
                     <button onClick={()=>onRemoveRoom(room.id)} title="Delete room"
                       style={{padding:'6px 9px',background:'#fdecea',border:'1px solid #f5c6c6',color:'#c62828',borderRadius:6,fontSize:13,cursor:'pointer',flexShrink:0}}>✕</button>
                   </div>
@@ -1397,34 +1491,86 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
         </div>
       )}
 
-      {/* Move Corner panel */}
-      {movingRoomId && (
+      {/* Edit Room bubble — 4 tools */}
+      {editBubbleRoom && (
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.4)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:50,padding:20}}
+          onClick={()=>setEditBubbleRoom(null)}>
+          <div style={{background:'#fff',borderRadius:14,padding:16,width:'100%',maxWidth:320,boxShadow:'0 8px 30px rgba(0,0,0,0.3)'}}
+            onClick={e=>e.stopPropagation()}>
+            <div style={{fontSize:14,fontWeight:700,color:'#222',marginBottom:2}}>{editBubbleRoom.name}</div>
+            <div style={{fontSize:12,color:'#888',marginBottom:14}}>Choose a tool</div>
+            <button onClick={()=>{ startEditRoom(editBubbleRoom); setEditBubbleRoom(null) }}
+              style={{width:'100%',textAlign:'left',padding:'11px 14px',marginBottom:8,background:'#f5f5f5',border:'1px solid #e0e0e0',borderRadius:9,fontSize:14,fontWeight:600,color:'#333',cursor:'pointer'}}>
+              ✏️ Continue Tracing
+              <div style={{fontSize:11,fontWeight:400,color:'#888',marginTop:2}}>Keep tracing new corners outward from where you closed it</div>
+            </button>
+            <button onClick={()=>startCornerTool(editBubbleRoom, 'add')}
+              style={{width:'100%',textAlign:'left',padding:'11px 14px',marginBottom:8,background:'#fff8e1',border:'1px solid #ffe0a3',borderRadius:9,fontSize:14,fontWeight:600,color:'#8a5a00',cursor:'pointer'}}>
+              ➕ Add Corner
+              <div style={{fontSize:11,fontWeight:400,color:'#a17d33',marginTop:2}}>Tap a line to insert a corner there — for a missed bump-out</div>
+            </button>
+            <button onClick={()=>startCornerTool(editBubbleRoom, 'move')}
+              style={{width:'100%',textAlign:'left',padding:'11px 14px',marginBottom:8,background:'#e0f2f1',border:'1px solid #80cbc4',borderRadius:9,fontSize:14,fontWeight:600,color:'#00695c',cursor:'pointer'}}>
+              🎯 Move Corner
+              <div style={{fontSize:11,fontWeight:400,color:'#3f8f83',marginTop:2}}>Nudge an existing corner into exact position</div>
+            </button>
+            <button onClick={()=>editBubbleRoom.points.length>3 && startCornerTool(editBubbleRoom, 'delete')}
+              disabled={editBubbleRoom.points.length<=3}
+              style={{width:'100%',textAlign:'left',padding:'11px 14px',marginBottom:14,background:editBubbleRoom.points.length<=3?'#f5f5f5':'#fdecea',border:`1px solid ${editBubbleRoom.points.length<=3?'#e0e0e0':'#f5c6c6'}`,borderRadius:9,fontSize:14,fontWeight:600,color:editBubbleRoom.points.length<=3?'#aaa':'#c62828',cursor:editBubbleRoom.points.length<=3?'not-allowed':'pointer'}}>
+              🗑️ Delete Corner
+              <div style={{fontSize:11,fontWeight:400,color:editBubbleRoom.points.length<=3?'#bbb':'#d17a76',marginTop:2}}>
+                {editBubbleRoom.points.length<=3 ? 'Room only has 3 corners — can\'t remove any' : 'Remove one corner from this room'}
+              </div>
+            </button>
+            <button onClick={()=>setEditBubbleRoom(null)} style={{width:'100%',padding:'10px',background:'transparent',border:'none',fontSize:13,color:'#888',cursor:'pointer'}}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {/* Corner tool panel (Move / Add / Delete) */}
+      {cornerTool && (
         <div style={{padding:'10px 12px', flexShrink:0, background:'#f4f4f2', borderTop:'2px solid #e0e0e0'}}>
-          {selectedCornerIdx == null ? (
-            <div style={{background:'#e0f2f1',border:'1px solid #80cbc4',borderRadius:8,padding:'10px 14px',fontSize:13,color:'#00695c',fontWeight:600,marginBottom:10,textAlign:'center'}}>
-              🎯 Tap the corner you want to nudge
+          {cornerTool === 'add' && (
+            <div style={{background:'#fff8e1',border:'1px solid #ffe0a3',borderRadius:8,padding:'10px 14px',fontSize:13,color:'#8a5a00',fontWeight:600,marginBottom:10,textAlign:'center'}}>
+              ➕ Tap anywhere on a line to add a corner there. Add as many as you need.
             </div>
-          ) : (
-            <>
-              <div style={{fontSize:12,color:'#666',textAlign:'center',marginBottom:8}}>
-                {NUDGE_INCHES}" per tap
+          )}
+          {(cornerTool === 'move' || cornerTool === 'delete') && selectedCornerIdx == null && (
+            <div style={{background: cornerTool==='delete' ? '#fdecea' : '#e0f2f1', border:`1px solid ${cornerTool==='delete'?'#f5c6c6':'#80cbc4'}`, borderRadius:8, padding:'10px 14px', fontSize:13, color: cornerTool==='delete'?'#c62828':'#00695c', fontWeight:600, marginBottom:10, textAlign:'center'}}>
+              {cornerTool==='delete' ? '🗑️ Tap the corner you want to remove' : '🎯 Tap the corner you want to nudge'}
+            </div>
+          )}
+          {cornerTool === 'move' && selectedCornerIdx != null && (
+            <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:20,marginBottom:10}}>
+              <div style={{display:'grid',gridTemplateColumns:'44px 44px 44px',gridTemplateRows:'38px 38px',gap:5}}>
+                <div /><button onClick={()=>nudgeCorner('up')} style={{background:'#fff',border:'2px solid #00695c',borderRadius:7,fontSize:16,color:'#00695c',cursor:'pointer'}}>▲</button><div />
+                <button onClick={()=>nudgeCorner('left')} style={{background:'#fff',border:'2px solid #00695c',borderRadius:7,fontSize:16,color:'#00695c',cursor:'pointer'}}>◀</button>
+                <button onClick={()=>nudgeCorner('down')} style={{background:'#fff',border:'2px solid #00695c',borderRadius:7,fontSize:16,color:'#00695c',cursor:'pointer'}}>▼</button>
+                <button onClick={()=>nudgeCorner('right')} style={{background:'#fff',border:'2px solid #00695c',borderRadius:7,fontSize:16,color:'#00695c',cursor:'pointer'}}>▶</button>
               </div>
-              <div style={{display:'grid',gridTemplateColumns:'56px 56px 56px',gridTemplateRows:'44px 44px',justifyContent:'center',gap:6,marginBottom:10}}>
-                <div />
-                <button onClick={()=>nudgeCorner(0,-NUDGE_INCHES)} style={{background:'#fff',border:'2px solid #00695c',borderRadius:8,fontSize:18,color:'#00695c',cursor:'pointer'}}>▲</button>
-                <div />
-                <button onClick={()=>nudgeCorner(-NUDGE_INCHES,0)} style={{background:'#fff',border:'2px solid #00695c',borderRadius:8,fontSize:18,color:'#00695c',cursor:'pointer'}}>◀</button>
-                <button onClick={()=>nudgeCorner(0,NUDGE_INCHES)} style={{background:'#fff',border:'2px solid #00695c',borderRadius:8,fontSize:18,color:'#00695c',cursor:'pointer'}}>▼</button>
-                <button onClick={()=>nudgeCorner(NUDGE_INCHES,0)} style={{background:'#fff',border:'2px solid #00695c',borderRadius:8,fontSize:18,color:'#00695c',cursor:'pointer'}}>▶</button>
+              <div style={{display:'flex',flexDirection:'column',gap:4}}>
+                {[1,6,12].map(inches => (
+                  <button key={inches} onClick={()=>setMoveIncrement(inches)}
+                    style={{width:34,height:20,borderRadius:5,fontSize:10,fontWeight:moveIncrement===inches?700:600,
+                      background:moveIncrement===inches?'#00695c':'#fff', color:moveIncrement===inches?'#fff':'#00695c',
+                      border:`1.3px solid #00695c`, display:'flex',alignItems:'center',justifyContent:'center',padding:0,lineHeight:1,cursor:'pointer'}}>
+                    {inches}"
+                  </button>
+                ))}
               </div>
-            </>
+            </div>
+          )}
+          {cornerTool === 'delete' && selectedCornerIdx != null && (
+            <button onClick={deleteSelectedCorner} style={{width:'100%',padding:'11px',background:'#c62828',color:'#fff',border:'none',borderRadius:8,fontSize:14,fontWeight:700,cursor:'pointer',marginBottom:10}}>
+              🗑️ Delete This Corner
+            </button>
           )}
           <div style={{display:'flex',gap:8}}>
-            <button onClick={cancelMoveRoom} style={{flex:1,padding:'11px',background:'transparent',border:'1px solid #ddd',borderRadius:8,fontSize:14,color:'#888',cursor:'pointer'}}>
+            <button onClick={cancelCornerTool} style={{flex:1,padding:'11px',background:'transparent',border:'1px solid #ddd',borderRadius:8,fontSize:14,color:'#888',cursor:'pointer'}}>
               Cancel
             </button>
-            <button onClick={finishMoveRoom} style={{flex:2,padding:'11px',background:'#00695c',color:'#fff',border:'none',borderRadius:8,fontSize:14,fontWeight:700,cursor:'pointer'}}>
-              ✓ Done Moving Corner
+            <button onClick={finishCornerTool} style={{flex:2,padding:'11px',background:cornerToolColor[cornerTool],color:'#fff',border:'none',borderRadius:8,fontSize:14,fontWeight:700,cursor:'pointer'}}>
+              {cornerTool === 'add' ? '✓ Done Adding Corners' : cornerTool === 'delete' ? '✓ Done Deleting' : '✓ Done Moving Corner'}
             </button>
           </div>
         </div>
