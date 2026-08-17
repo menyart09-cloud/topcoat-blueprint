@@ -4,7 +4,7 @@ const ORANGE = '#0077B6'
 const DARK   = '#1c1c2e'
 
 // Quick-pick coating types for the Results screen — anything else can be typed in
-const COATING_TYPES = ['Epoxy', 'Concrete Overlay', 'Granite Overlay', 'Rubber', 'Rock Carpet']
+const COATING_TYPES = ['Concrete Overlay', 'Epoxy', 'Granite Overlay', 'Rock Carpet', 'Rubber', 'Sealed Concrete', 'Stained Concrete']
 
 const ROOM_COLORS = [
   { fill: 'rgba(255,80,80,0.35)',   border: '#e53935', solid: '#e53935' },
