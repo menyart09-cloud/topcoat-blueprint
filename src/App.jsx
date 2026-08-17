@@ -953,6 +953,13 @@ function CalibrateScreen({ image, jobName, onDone }) {
     }])
   }
 
+  // Width ÷ height of the actual loaded image. All downstream area/perimeter
+  // math treats X as "fraction of width" and Y as "fraction of height" —
+  // two DIFFERENT physical units on any non-square image. aspectRatio is
+  // what converts a height-fraction into its width-fraction equivalent
+  // (divide by aspectRatio) so the two can be validly combined.
+  const aspectRatio = (imgRef.current?.naturalWidth / imgRef.current?.naturalHeight) || 1.4
+
   function calcScale() {
     if (points.length < 2) return null
     let ft = 0
@@ -964,7 +971,12 @@ function CalibrateScreen({ image, jobName, onDone }) {
     }
     if (!ft || ft <= 0) return null
     const dx = points[1].x - points[0].x
-    const dy = points[1].y - points[0].y
+    // Normalize dy to width-fraction-equivalent units before combining with
+    // dx — without this, a calibration line tapped at any diagonal angle
+    // (not perfectly horizontal or vertical) produces a systematically wrong
+    // scale on any non-square blueprint image, since it mixes two different
+    // units under one square root.
+    const dy = (points[1].y - points[0].y) / aspectRatio
     return Math.sqrt(dx*dx + dy*dy) / ft
   }
 
@@ -1028,7 +1040,7 @@ function CalibrateScreen({ image, jobName, onDone }) {
             {scaleOk ? `✓ Scale OK — ${parsedFt?.toFixed(1)} ft calibrated` : '⚠️ Scale off — use a longer line'}
           </div>
         )}
-        <button onClick={()=>canGo&&onDone(fracPerFt, (imgRef.current?.naturalWidth/imgRef.current?.naturalHeight) || 1.4)} disabled={!canGo}
+        <button onClick={()=>canGo&&onDone(fracPerFt, aspectRatio)} disabled={!canGo}
           style={{width:'100%',padding:'11px',background:canGo?ORANGE:'#ccc',color:'#fff',border:'none',borderRadius:10,fontSize:14,fontWeight:700,cursor:canGo?'pointer':'not-allowed',boxShadow:canGo?'0 4px 14px rgba(0,119,182,0.35)':'none'}}>
           Continue — Draw Overlays →
         </button>
