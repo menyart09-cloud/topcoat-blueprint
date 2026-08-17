@@ -79,7 +79,48 @@ function nearestPointOnSegment(px, py, ax, ay, bx, by) {
   t = Math.max(0, Math.min(1, t))
   const x = ax + abx*t, y = ay + aby*t
   const dx = px-x, dy = py-y
-  return { x, y, dist: Math.sqrt(dx*dx + dy*dy) }
+  return { x, y, dist: Math.sqrt(dx*dx + dy*dy), t }
+}
+
+// ── Splice a freeform detour into a polygon's boundary ──────────
+// start/end are {edge, point} — edge is the index of the original edge the
+// anchor point sits on. Replaces whichever of the two arcs between them is
+// SHORTER (fewer original points) with the new detour chain, so a detour
+// stays a local modification rather than accidentally replacing most of
+// the room if it happens to close on a far-away edge.
+function spliceDetourIntoPolygon(points, start, end, detourPoints) {
+  const n = points.length
+  if (start.edge === end.edge) {
+    // Both anchors land on the same original edge — order them by how far
+    // along that edge each one is, so the chain doesn't cross itself.
+    const chain = start.t <= end.t
+      ? [start.point, ...detourPoints, end.point]
+      : [end.point, ...[...detourPoints].reverse(), start.point]
+    const next = [...points]
+    next.splice(start.edge + 1, 0, ...chain)
+    return next
+  }
+  const forwardDist  = (end.edge - start.edge + n) % n
+  const backwardDist = n - forwardDist
+  if (forwardDist <= backwardDist) {
+    // Keep the arc from end.edge+1 around to start.edge; the detour
+    // replaces the (shorter) forward arc between them.
+    const kept = []
+    for (let k = (end.edge + 1) % n; ; k = (k + 1) % n) {
+      kept.push(points[k])
+      if (k === start.edge) break
+    }
+    return [...kept, start.point, ...detourPoints, end.point]
+  } else {
+    // Keep the arc from start.edge+1 around to end.edge; the detour
+    // replaces the (shorter) backward arc, so it's spliced in reversed.
+    const kept = []
+    for (let k = (start.edge + 1) % n; ; k = (k + 1) % n) {
+      kept.push(points[k])
+      if (k === end.edge) break
+    }
+    return [...kept, end.point, ...[...detourPoints].reverse(), start.point]
+  }
 }
 
 // ── Centroid ─────────────────────────────────────────────────
@@ -1099,6 +1140,13 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
   const [moveIncrement,      setMoveIncrement]      = useState(1) // inches: 1, 6, or 12
   // Edit Room bubble — which room's tool menu is open
   const [editBubbleRoom, setEditBubbleRoom] = useState(null)
+  // Add Corner: a freeform detour that starts and ends on the room's
+  // existing boundary — starts on any edge, tap freely, then closes when
+  // a tap lands near the boundary again (same tolerance as picking a corner
+  // to move — you don't need to hit the line exactly).
+  const [addDetourActive, setAddDetourActive] = useState(false)
+  const [addDetourStart,  setAddDetourStart]  = useState(null) // {edge, point}
+  const [addDetourPoints, setAddDetourPoints] = useState([])
   const imgRef = useRef()
   const containerRef = useRef()
   const blueprintCtrlRef = useRef()
@@ -1157,9 +1205,10 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
     }
 
     if (cornerTool === 'add') {
-      // Add Corner only reacts to taps on a line — inserts a new corner
-      // exactly where tapped, no selection/zoom, just keep tapping to add more.
-      const edgeThresh = 22 / rect.width
+      // Hit-test against the ORIGINAL (unmodified) boundary — same
+      // tolerance used for picking a corner in Move Corner, so you don't
+      // have to hit the line exactly, either to start or to close.
+      const edgeThresh = 30 / rect.width
       let bestEdge = -1, bestEdgeDist = Infinity, bestEdgePoint = null
       const n = cornerToolPoints.length
       for (let i = 0; i < n; i++) {
@@ -1169,14 +1218,30 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
           bestEdgeDist = near.dist; bestEdge = i; bestEdgePoint = near
         }
       }
-      if (bestEdge >= 0) {
-        const insertIdx = bestEdge + 1
-        const newPoint = { x: bestEdgePoint.x, y: bestEdgePoint.y }
-        setCornerToolPoints(prev => {
-          const next = [...prev]
-          next.splice(insertIdx, 0, newPoint)
-          return next
-        })
+      const nearBoundary = bestEdge >= 0
+
+      if (!addDetourActive) {
+        // Not tracing a detour yet — the first tap has to land on the
+        // boundary to anchor where the detour begins.
+        if (nearBoundary) {
+          setAddDetourActive(true)
+          setAddDetourStart({ edge: bestEdge, point: { x: bestEdgePoint.x, y: bestEdgePoint.y }, t: bestEdgePoint.t })
+          setAddDetourPoints([])
+        }
+        return
+      }
+
+      if (nearBoundary) {
+        // Tap landed back on the boundary — close the detour, splicing
+        // the whole chain into the room's outline in one go.
+        const end = { edge: bestEdge, point: { x: bestEdgePoint.x, y: bestEdgePoint.y }, t: bestEdgePoint.t }
+        setCornerToolPoints(prev => spliceDetourIntoPolygon(prev, addDetourStart, end, addDetourPoints))
+        setAddDetourActive(false)
+        setAddDetourStart(null)
+        setAddDetourPoints([])
+      } else {
+        // Freeform — anywhere is fine, keep building the detour path.
+        setAddDetourPoints(prev => [...prev, { x: pt.x, y: pt.y }])
       }
     }
   }
@@ -1210,6 +1275,7 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
     setSelectedCornerIdx(null)
     setCornerTool(tool)
     setEditBubbleRoom(null)
+    setAddDetourActive(false); setAddDetourStart(null); setAddDetourPoints([])
     onRemoveRoom(room.id)
   }
 
@@ -1220,12 +1286,21 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
     onAddRoom({ ...cornerToolOriginal, points: [...cornerToolPoints], sqft, perim })
     setCornerTool(null); setCornerToolRoomId(null); setCornerToolPoints(null)
     setCornerToolOriginal(null); setSelectedCornerIdx(null)
+    setAddDetourActive(false); setAddDetourStart(null); setAddDetourPoints([])
   }
 
   function cancelCornerTool() {
     if (cornerToolOriginal) onAddRoom(cornerToolOriginal)
     setCornerTool(null); setCornerToolRoomId(null); setCornerToolPoints(null)
     setCornerToolOriginal(null); setSelectedCornerIdx(null)
+    setAddDetourActive(false); setAddDetourStart(null); setAddDetourPoints([])
+  }
+
+  // Abandons only the in-progress detour (not yet spliced in), staying in
+  // Add Corner mode so any earlier, already-closed detours in this same
+  // session are kept.
+  function cancelDetour() {
+    setAddDetourActive(false); setAddDetourStart(null); setAddDetourPoints([])
   }
 
   async function handleTap(e) {
@@ -1326,7 +1401,7 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
 
   const cornerToolBanner = {
     move:   selectedCornerIdx==null ? '🎯 MOVE CORNER — tap a corner to nudge' : '🎯 MOVE CORNER — use the arrows to nudge it',
-    add:    '➕ ADD CORNER — tap a line to add a corner there',
+    add:    addDetourActive ? '➕ ADD CORNER — tap to keep going, or tap a line to close it' : '➕ ADD CORNER — tap a line to start',
     delete: selectedCornerIdx==null ? '🗑️ DELETE CORNER — tap a corner to remove' : '🗑️ DELETE CORNER — tap Delete below to confirm',
   }
   const cornerToolColor = { move:'#00695c', add:'#f57f17', delete:'#c62828' }
@@ -1368,6 +1443,14 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
               const { x, y } = toScreen(pt.x, pt.y, imgSize.w||400, imgSize.h||300)
               return renderMoveCornerMarker(x, y, false, `pt-${i}`, '#f57f17')
             })}
+            {addDetourActive && addDetourStart && (() => {
+              const { x, y } = toScreen(addDetourStart.point.x, addDetourStart.point.y, imgSize.w||400, imgSize.h||300)
+              return renderMoveCornerMarker(x, y, true, 'detour-start', '#f57f17')
+            })()}
+            {addDetourActive && addDetourPoints.map((pt,i) => {
+              const { x, y } = toScreen(pt.x, pt.y, imgSize.w||400, imgSize.h||300)
+              return renderMoveCornerMarker(x, y, false, `detour-${i}`, '#f57f17')
+            })}
           </>
         )}>
         <div style={{position:'relative'}}>
@@ -1406,6 +1489,9 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
             )}
             {cornerToolPoints && (
               <polygon points={toSvgPoints(cornerToolPoints, imgSize.w||400, imgSize.h||300)} fill={`${cornerToolColor[cornerTool]}2e`} stroke={cornerToolColor[cornerTool]} strokeWidth={2} strokeDasharray="6,3"/>
+            )}
+            {addDetourActive && addDetourStart && (
+              <polyline points={toSvgPoints([addDetourStart.point, ...addDetourPoints], imgSize.w||400, imgSize.h||300)} fill="none" stroke="#f57f17" strokeWidth={2.5} strokeDasharray="5,4"/>
             )}
           </svg>
         </div>
@@ -1532,7 +1618,9 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
         <div style={{padding:'10px 12px', flexShrink:0, background:'#f4f4f2', borderTop:'2px solid #e0e0e0'}}>
           {cornerTool === 'add' && (
             <div style={{background:'#fff8e1',border:'1px solid #ffe0a3',borderRadius:8,padding:'10px 14px',fontSize:13,color:'#8a5a00',fontWeight:600,marginBottom:10,textAlign:'center'}}>
-              ➕ Tap anywhere on a line to add a corner there. Add as many as you need.
+              {addDetourActive
+                ? '➕ Tap to add another point, or tap near a line to close it there'
+                : '➕ Tap a line to start — then trace freely and close it back on the boundary'}
             </div>
           )}
           {(cornerTool === 'move' || cornerTool === 'delete') && selectedCornerIdx == null && (
@@ -1565,6 +1653,11 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
               🗑️ Delete This Corner
             </button>
           )}
+          {addDetourActive ? (
+            <button onClick={cancelDetour} style={{width:'100%',padding:'11px',background:'transparent',border:'1px solid #f5c6c6',borderRadius:8,fontSize:14,color:'#c62828',cursor:'pointer'}}>
+              ✕ Cancel This Detour
+            </button>
+          ) : (
           <div style={{display:'flex',gap:8}}>
             <button onClick={cancelCornerTool} style={{flex:1,padding:'11px',background:'transparent',border:'1px solid #ddd',borderRadius:8,fontSize:14,color:'#888',cursor:'pointer'}}>
               Cancel
@@ -1573,6 +1666,7 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
               {cornerTool === 'add' ? '✓ Done Adding Corners' : cornerTool === 'delete' ? '✓ Done Deleting' : '✓ Done Moving Corner'}
             </button>
           </div>
+          )}
         </div>
       )}
     </div>
