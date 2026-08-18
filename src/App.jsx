@@ -1683,7 +1683,9 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
 }
 
 // ── Results Screen ────────────────────────────────────────────
-function ResultsScreen({ image, rooms, jobName, onReset, onEdit }) {
+function ResultsScreen({ image, rooms, jobName, setJobName, onReset, onEdit }) {
+  const [editingJobName, setEditingJobName] = useState(false)
+  const [jobNameDraft,   setJobNameDraft]   = useState(jobName)
   const totalSqft  = Math.round(rooms.reduce((s,r)=>s+(r.sqft||0),0))
   const totalPerim = Math.round(rooms.reduce((s,r)=>s+(r.perim||0),0))
   const [saving,     setSaving]     = useState(false)
@@ -1768,7 +1770,7 @@ function ResultsScreen({ image, rooms, jobName, onReset, onEdit }) {
         F_est * 2.0 +                                                    // totals
         (hasAnyPrice ? F_est * 2.5 : 0) +                                 // price line
         F_est * 1.5 +                                                    // divider
-        Math.ceil(rooms.length / 2) * F_est * 5.6 +                      // room rows 2-col (name + sqft/perim + coating + price)
+        Math.ceil(rooms.length / Math.min(2, Math.max(rooms.length,1))) * F_est * 5.6 +           // room rows (1 col if only 1 room, else 2)
         F_est * 3.0                                                      // footer + bottom pad
       )
       const rowH    = Math.round((legendH - 220) / Math.max(rooms.length, 1))
@@ -1902,11 +1904,14 @@ function ResultsScreen({ image, rooms, jobName, onReset, onEdit }) {
       ctx.fillRect(pad, cur, cappedImgW - pad * 2, 1)
       cur += F * 0.6
 
-      // Room rows — 2 columns to save vertical space
-      const swatchSize = F * 1.4
-      const roomRowH   = F * 4.3   // room for up to 4 lines: name, sqft/perim, coating, price
-      const colW       = (cappedImgW - pad * 2) / 2
-      const numRows    = Math.ceil(rooms.length / 2)
+      // Room rows — 2 columns to save vertical space, but a single room
+      // gets the full width instead of being squeezed into half of it
+      // while the other half sits empty.
+      const numCols     = rooms.length <= 1 ? 1 : 2
+      const swatchSize  = F * 1.4
+      const roomRowH    = F * 4.3   // room for up to 4 lines: name, sqft/perim, coating, price
+      const colW        = (cappedImgW - pad * 2) / numCols
+      const numRows     = Math.ceil(rooms.length / numCols)
       // Truncate to fit width, accounting for the ellipsis's own width so the
       // truncated+ellipsis string never exceeds the available column budget
       function fitText(text, font, maxW) {
@@ -1918,8 +1923,8 @@ function ResultsScreen({ image, rooms, jobName, onReset, onEdit }) {
         return t + '…'
       }
       rooms.forEach((room, i) => {
-        const col   = i % 2          // 0 = left, 1 = right
-        const row   = Math.floor(i / 2)
+        const col   = i % numCols
+        const row   = Math.floor(i / numCols)
         const rx    = pad + col * colW
         const ry    = cur + row * roomRowH
         const avail = colW - swatchSize - 20
@@ -1979,11 +1984,26 @@ function ResultsScreen({ image, rooms, jobName, onReset, onEdit }) {
   return (
     <div className="fade-in" style={{ padding:'16px 16px 40px' }}>
       <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14}}>
-        <div>
-          <div style={{fontWeight:700,fontSize:16,color:'#222'}}>{jobName || 'Results'}</div>
+        <div style={{flex:1,minWidth:0}}>
+          {editingJobName ? (
+            <div style={{display:'flex',alignItems:'center',gap:6}}>
+              <input type="text" value={jobNameDraft} autoFocus
+                onChange={e=>setJobNameDraft(e.target.value)}
+                onKeyDown={e=>{ if(e.key==='Enter'){ setJobName(jobNameDraft); setEditingJobName(false) } if(e.key==='Escape'){ setJobNameDraft(jobName); setEditingJobName(false) } }}
+                style={{fontWeight:700,fontSize:16,color:'#222',border:'1px solid #ddd',borderRadius:6,padding:'4px 8px',flex:1,minWidth:0}} />
+              <button onClick={()=>{ setJobName(jobNameDraft); setEditingJobName(false) }}
+                style={{background:ORANGE,color:'#fff',border:'none',borderRadius:6,padding:'6px 10px',fontSize:13,fontWeight:700,cursor:'pointer',flexShrink:0}}>✓</button>
+            </div>
+          ) : (
+            <div style={{display:'flex',alignItems:'center',gap:6}}>
+              <div style={{fontWeight:700,fontSize:16,color:'#222',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{jobName || 'Results'}</div>
+              <button onClick={()=>{ setJobNameDraft(jobName); setEditingJobName(true) }} title="Edit job name"
+                style={{background:'transparent',border:'none',fontSize:13,cursor:'pointer',flexShrink:0,padding:2}}>✏️</button>
+            </div>
+          )}
           <div style={{fontSize:12,color:'#888'}}>{rooms.length} room{rooms.length!==1?'s':''} traced</div>
         </div>
-        <button onClick={onReset} style={{background:'transparent',border:'1px solid #ddd',borderRadius:6,padding:'4px 12px',fontSize:12,color:'#666',cursor:'pointer'}}>New Job</button>
+        <button onClick={onReset} style={{background:'transparent',border:'1px solid #ddd',borderRadius:6,padding:'4px 12px',fontSize:12,color:'#666',cursor:'pointer',flexShrink:0}}>New Job</button>
       </div>
 
       {/* Blueprint with overlays */}
@@ -2178,7 +2198,7 @@ export default function App() {
       {screen==='straighten' && <StraightenScreen image={image} jobName={jobName} onDone={handleStraightenDone} onSkip={()=>setScreen('calibrate')} />}
       {screen==='calibrate' && <CalibrateScreen image={image} jobName={jobName} onDone={handleCalibrateDone} />}
       {screen==='draw'      && <DrawScreen      image={image} fracPerFt={fracPerFt} aspectRatio={aspectRatio} rooms={rooms} jobName={jobName} onAddRoom={r=>setRooms(p=>[...p,r])} onRemoveRoom={id=>setRooms(p=>p.filter(r=>r.id!==id))} onUpdateRoom={(id,patch)=>setRooms(p=>p.map(r=>r.id===id?{...r,...patch}:r))} onFinish={()=>setScreen('results')} />}
-      {screen==='results'   && <ResultsScreen   image={image} rooms={rooms} jobName={jobName} onReset={reset} onEdit={()=>setScreen('draw')} />}
+      {screen==='results'   && <ResultsScreen   image={image} rooms={rooms} jobName={jobName} setJobName={setJobName} onReset={reset} onEdit={()=>setScreen('draw')} />}
       <div style={{textAlign:'center',padding:'12px',color:'#bbb',fontSize:11}}>TopCoat Tech · Blueprint Analyzer</div>
     </div>
     </ErrorBoundary>
