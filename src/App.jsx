@@ -91,7 +91,7 @@ function wallLabelFontSize(a, b, imgWpx, imgHpx) {
   const dxpx = (b.x - a.x) * imgWpx
   const dypx = (b.y - a.y) * imgHpx
   const lenPx = Math.sqrt(dxpx*dxpx + dypx*dypx)
-  return Math.min(Math.max(lenPx * 0.11, 8), 15)
+  return Math.min(Math.max(lenPx * 0.06, 6), 10)
 }
 
 // ── Nearest point on a line segment (for tap-to-insert-corner) ──
@@ -1540,8 +1540,8 @@ const DrawScreen = React.forwardRef(function DrawScreen({ image, fracPerFt, aspe
                     const fsWall = wallLabelFontSize(a, b, imgSize.w||400, imgSize.h||300)
                     return (
                       <text key={`wall-${room.id}-${i}`} x={`${lx*100}%`} y={`${ly*100}%`}
-                        textAnchor="middle" dominantBaseline="middle" fill="#fff" fontSize={fsWall} fontWeight="700"
-                        style={{filter:'drop-shadow(0 1px 2px rgba(0,0,0,0.85))'}}>
+                        textAnchor="middle" dominantBaseline="middle" fill="#000" fontSize={fsWall} fontWeight="700"
+                        style={{filter:'drop-shadow(0 0 2px rgba(255,255,255,0.9))'}}>
                         {feetInchesLabel(lenFt)}
                       </text>
                     )
@@ -2100,8 +2100,8 @@ function ResultsScreen({ image, rooms, jobName, setJobName, fracPerFt, aspectRat
                   const fsWall = wallLabelFontSize(a, b, imgSize.w||400, imgSize.h||300)
                   return (
                     <text key={`wall-${room.id}-${i}`} x={`${lx*100}%`} y={`${ly*100}%`}
-                      textAnchor="middle" dominantBaseline="middle" fill="#fff" fontSize={fsWall} fontWeight="700"
-                      style={{filter:'drop-shadow(0 1px 3px rgba(0,0,0,0.9))'}}>
+                      textAnchor="middle" dominantBaseline="middle" fill="#000" fontSize={fsWall} fontWeight="700"
+                      style={{filter:'drop-shadow(0 0 2px rgba(255,255,255,0.9))'}}>
                       {feetInchesLabel(lenFt)}
                     </text>
                   )
