@@ -1554,11 +1554,11 @@ const DrawScreen = React.forwardRef(function DrawScreen({ image, fracPerFt, aspe
                     const lenFt = edgeLengthFt(a, b, fracPerFt, aspectRatio)
                     if (lenFt < 2) return null
                     const midX = (a.x+b.x)/2, midY = (a.y+b.y)/2
-                    const lx = midX + (c.x - midX) * 0.12
-                    const ly = midY + (c.y - midY) * 0.12
+                    const lx = midX + (c.x - midX) * 0.05
+                    const ly = midY + (c.y - midY) * 0.05
                     return (
                       <text key={`wall-${room.id}-${i}`} x={`${lx*100}%`} y={`${ly*100}%`}
-                        textAnchor="middle" dominantBaseline="middle" fill="#000" fontSize={wallFS} fontWeight="700"
+                        textAnchor="middle" dominantBaseline="middle" fill="#000" fontSize={wallFS} fontWeight="400"
                         style={{filter:'drop-shadow(0 0 2px rgba(255,255,255,0.9))'}}>
                         {feetInchesLabel(lenFt)}
                       </text>
@@ -2116,11 +2116,11 @@ function ResultsScreen({ image, rooms, jobName, setJobName, fracPerFt, aspectRat
                   const lenFt = edgeLengthFt(a, b, fracPerFt, aspectRatio)
                   if (lenFt < 2) return null
                   const midX = (a.x+b.x)/2, midY = (a.y+b.y)/2
-                  const lx = midX + (c.x - midX) * 0.12
-                  const ly = midY + (c.y - midY) * 0.12
+                  const lx = midX + (c.x - midX) * 0.05
+                  const ly = midY + (c.y - midY) * 0.05
                   return (
                     <text key={`wall-${room.id}-${i}`} x={`${lx*100}%`} y={`${ly*100}%`}
-                      textAnchor="middle" dominantBaseline="middle" fill="#000" fontSize={wallFS} fontWeight="700"
+                      textAnchor="middle" dominantBaseline="middle" fill="#000" fontSize={wallFS} fontWeight="400"
                       style={{filter:'drop-shadow(0 0 2px rgba(255,255,255,0.9))'}}>
                       {feetInchesLabel(lenFt)}
                     </text>
