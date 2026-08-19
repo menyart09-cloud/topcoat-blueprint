@@ -86,14 +86,6 @@ function feetInchesLabel(ft) {
   return `${feet}'-${inches}"`
 }
 
-// ── Wall label font size, scaled to that wall's own on-screen length ──
-function wallLabelFontSize(a, b, imgWpx, imgHpx) {
-  const dxpx = (b.x - a.x) * imgWpx
-  const dypx = (b.y - a.y) * imgHpx
-  const lenPx = Math.sqrt(dxpx*dxpx + dypx*dypx)
-  return Math.min(Math.max(lenPx * 0.06, 6), 10)
-}
-
 // ── Nearest point on a line segment (for tap-to-insert-corner) ──
 function nearestPointOnSegment(px, py, ax, ay, bx, by) {
   const abx = bx-ax, aby = by-ay
@@ -215,30 +207,59 @@ function renderEdgeHintMarker(x, y, key) {
   )
 }
 
+// ── Room name / sq ft / wall-length labels, rendered on the fixed
+// overlay layer so their size is genuinely constant on screen regardless
+// of zoom — matching how professional CAD/GIS software handles labels
+// (AutoCAD's "Annotative" text, ArcGIS's default un-scaled labels).
+// Fixed sizes below are a starting point calibrated against a ~20'x30'
+// garage — the most common job size — and are expected to get dialed in
+// further from there.
+const ROOM_NAME_FS  = 14
+const ROOM_SQFT_FS  = 10
+const WALL_LABEL_FS = 9
+function renderRoomLabelsOverlay(rooms, toScreen, imgW, imgH, fracPerFt, aspectRatio) {
+  return (
+    <svg style={{position:'absolute',inset:0,width:'100%',height:'100%',pointerEvents:'none',overflow:'visible'}}>
+      {rooms.map(room => {
+        const c = centroid(room.points)
+        const cs = toScreen(c.x, c.y, imgW, imgH)
+        return (
+          <g key={room.id}>
+            {fracPerFt && room.points.map((a, i) => {
+              const b = room.points[(i+1) % room.points.length]
+              const lenFt = edgeLengthFt(a, b, fracPerFt, aspectRatio)
+              if (lenFt < 2) return null
+              const midX = (a.x+b.x)/2, midY = (a.y+b.y)/2
+              const lx = midX + (c.x - midX) * 0.12
+              const ly = midY + (c.y - midY) * 0.12
+              const ls = toScreen(lx, ly, imgW, imgH)
+              return (
+                <text key={`wall-${room.id}-${i}`} x={ls.x} y={ls.y}
+                  textAnchor="middle" dominantBaseline="middle" fill="#000" fontSize={WALL_LABEL_FS} fontWeight="700"
+                  style={{filter:'drop-shadow(0 0 2px rgba(255,255,255,0.9))'}}>
+                  {feetInchesLabel(lenFt)}
+                </text>
+              )
+            })}
+            <text x={cs.x} y={cs.y}
+              textAnchor="middle" dominantBaseline="middle" fill="#fff" fontSize={ROOM_NAME_FS} fontWeight="800"
+              style={{filter:'drop-shadow(0 1px 2px rgba(0,0,0,0.8))'}}>
+              {room.name}
+            </text>
+            <text x={cs.x} y={cs.y + ROOM_NAME_FS*0.9}
+              textAnchor="middle" dominantBaseline="middle" fill="rgba(255,255,255,0.9)" fontSize={ROOM_SQFT_FS} fontWeight="600"
+              style={{filter:'drop-shadow(0 1px 2px rgba(0,0,0,0.8))'}}>
+              {room.sqft.toLocaleString()} sf
+            </text>
+          </g>
+        )
+      })}
+    </svg>
+  )
+}
+
 // ── Clamp a fractional image coordinate to [0,1] ────────────────
 function clamp01(v) { return Math.min(1, Math.max(0, v)) }
-
-// ── Room label font size, proportional to how big the room renders ──
-// Bigger room on screen = bigger label, small room = small label,
-// clamped so neither a huge room's text nor a tiny closet's text
-// gets absurd. Returns { name, sqft } font sizes in px.
-function roomLabelFontSizes(room, imgWpx, imgHpx) {
-  let minX=1, minY=1, maxX=0, maxY=0
-  room.points.forEach(p => {
-    if (p.x < minX) minX = p.x
-    if (p.y < minY) minY = p.y
-    if (p.x > maxX) maxX = p.x
-    if (p.y > maxY) maxY = p.y
-  })
-  const boxW = (maxX - minX) * imgWpx
-  const boxH = (maxY - minY) * imgHpx
-  const metric = Math.sqrt(Math.max(boxW * boxH, 1))
-  // Cap scales with the image itself — a flat pixel cap looks tiny on a big
-  // desktop export or when a single room dominates most of the frame.
-  const maxCap = Math.max(imgWpx * 0.07, 24)
-  const name = Math.min(Math.max(metric * 0.06, 12), maxCap)
-  return { name, sqft: name * 0.65 }
-}
 
 // ── PDF to high-res image ─────────────────────────────────────
 // ── Ensure pdf.js library is loaded (shared by all PDF rendering) ─
@@ -1476,6 +1497,7 @@ const DrawScreen = React.forwardRef(function DrawScreen({ image, fracPerFt, aspe
       <ZoomableBlueprint ref={blueprintCtrlRef} onTap={e=>{if(!naming&&!identifying)handleTap(e)}} style={{flex:1,maxHeight:'none',minHeight:0}} onZoomChange={setZoomLevel}
         renderOverlay={toScreen => (
           <>
+            {renderRoomLabelsOverlay(rooms, toScreen, imgSize.w||400, imgSize.h||300, fracPerFt, aspectRatio)}
             {cornerToolPoints && (
               <svg style={{position:'absolute',inset:0,width:'100%',height:'100%',pointerEvents:'none',overflow:'visible'}}>
                 <polygon points={cornerToolPoints.map(p => { const s = toScreen(p.x, p.y, imgSize.w||400, imgSize.h||300); return `${s.x},${s.y}` }).join(' ')}
@@ -1519,46 +1541,9 @@ const DrawScreen = React.forwardRef(function DrawScreen({ image, fracPerFt, aspe
             style={{width:'100%',display:'block',userSelect:'none'}} draggable={false}
             onLoad={()=>setImgSize({w:imgRef.current.clientWidth,h:imgRef.current.clientHeight})} />
           <svg style={{position:'absolute',inset:0,width:'100%',height:'100%',pointerEvents:'none'}}>
-            {rooms.map(room => {
-              const c = centroid(room.points)
-              const w = imgSize.w || 400
-              const { name: baseName, sqft: baseSqft } = roomLabelFontSizes(room, imgSize.w||400, imgSize.h||300)
-              const fs1 = Math.max(baseName, 10)   // name font px
-              const fs2 = Math.max(baseSqft, 8)   // sqft font px
-              const dy2 = Math.max(fs1*0.85, 4)  // offset in px
-              return (
-                <g key={room.id}>
-                  <polygon points={toSvgPoints(room.points, imgSize.w, imgSize.h)} fill={(room.color||ROOM_COLORS[0]).fill} stroke={(room.color||ROOM_COLORS[0]).border} strokeWidth={2}/>
-                  {room.points.map((a, i) => {
-                    const b = room.points[(i+1) % room.points.length]
-                    const lenFt = edgeLengthFt(a, b, fracPerFt, aspectRatio)
-                    if (lenFt < 2) return null
-                    const midX = (a.x+b.x)/2, midY = (a.y+b.y)/2
-                    // Nudge toward the room's centroid so it sits just inside the wall, not on top of the line
-                    const lx = midX + (c.x - midX) * 0.12
-                    const ly = midY + (c.y - midY) * 0.12
-                    const fsWall = wallLabelFontSize(a, b, imgSize.w||400, imgSize.h||300)
-                    return (
-                      <text key={`wall-${room.id}-${i}`} x={`${lx*100}%`} y={`${ly*100}%`}
-                        textAnchor="middle" dominantBaseline="middle" fill="#000" fontSize={fsWall} fontWeight="700"
-                        style={{filter:'drop-shadow(0 0 2px rgba(255,255,255,0.9))'}}>
-                        {feetInchesLabel(lenFt)}
-                      </text>
-                    )
-                  })}
-                  <text x={`${c.x*100}%`} y={`${c.y*100}%`}
-                    textAnchor="middle" dominantBaseline="middle" fill="#fff" fontSize={fs1} fontWeight="800"
-                    style={{filter:'drop-shadow(0 1px 2px rgba(0,0,0,0.8))'}}>
-                    {room.name}
-                  </text>
-                  <text x={`${c.x*100}%`} y={`${c.y*100}%`} dy={dy2}
-                    textAnchor="middle" dominantBaseline="middle" fill="rgba(255,255,255,0.9)" fontSize={fs2} fontWeight="600"
-                    style={{filter:'drop-shadow(0 1px 2px rgba(0,0,0,0.8))'}}>
-                    {room.sqft.toLocaleString()} sf
-                  </text>
-                </g>
-              )
-            })}
+            {rooms.map(room => (
+              <polygon key={room.id} points={toSvgPoints(room.points, imgSize.w, imgSize.h)} fill={(room.color||ROOM_COLORS[0]).fill} stroke={(room.color||ROOM_COLORS[0]).border} strokeWidth={2}/>
+            ))}
             {points.length>=2 && (
               <polyline points={toSvgPoints(points, imgSize.w, imgSize.h)} fill="none" stroke={color.border} strokeWidth={2} strokeDasharray="6,3"/>
             )}
@@ -2085,7 +2070,6 @@ function ResultsScreen({ image, rooms, jobName, setJobName, fracPerFt, aspectRat
             onLoad={()=>setImgSize({w:blueprintRef.current.clientWidth,h:blueprintRef.current.clientHeight})} />
           <svg style={{position:'absolute',inset:0,width:'100%',height:'100%',pointerEvents:'none'}}>
             {rooms.map(room => {
-              const { name: nameFS, sqft: sqftFS } = roomLabelFontSizes(room, imgSize.w||400, imgSize.h||300)
               const c = centroid(room.points)
               return (
               <g key={room.id}>
@@ -2097,22 +2081,21 @@ function ResultsScreen({ image, rooms, jobName, setJobName, fracPerFt, aspectRat
                   const midX = (a.x+b.x)/2, midY = (a.y+b.y)/2
                   const lx = midX + (c.x - midX) * 0.12
                   const ly = midY + (c.y - midY) * 0.12
-                  const fsWall = wallLabelFontSize(a, b, imgSize.w||400, imgSize.h||300)
                   return (
                     <text key={`wall-${room.id}-${i}`} x={`${lx*100}%`} y={`${ly*100}%`}
-                      textAnchor="middle" dominantBaseline="middle" fill="#000" fontSize={fsWall} fontWeight="700"
+                      textAnchor="middle" dominantBaseline="middle" fill="#000" fontSize={WALL_LABEL_FS} fontWeight="700"
                       style={{filter:'drop-shadow(0 0 2px rgba(255,255,255,0.9))'}}>
                       {feetInchesLabel(lenFt)}
                     </text>
                   )
                 })}
                 <text x={`${c.x*100}%`} y={`${c.y*100}%`}
-                  textAnchor="middle" dominantBaseline="middle" fill="#fff" fontSize={nameFS} fontWeight="800"
+                  textAnchor="middle" dominantBaseline="middle" fill="#fff" fontSize={ROOM_NAME_FS} fontWeight="800"
                   style={{filter:'drop-shadow(0 1px 3px rgba(0,0,0,0.9))'}}>
                   {room.name}
                 </text>
-                <text x={`${c.x*100}%`} y={`${c.y*100}%`} dy={nameFS*0.9}
-                  textAnchor="middle" dominantBaseline="middle" fill="rgba(255,255,255,0.9)" fontSize={sqftFS} fontWeight="600"
+                <text x={`${c.x*100}%`} y={`${c.y*100}%`} dy={ROOM_NAME_FS*0.9}
+                  textAnchor="middle" dominantBaseline="middle" fill="rgba(255,255,255,0.9)" fontSize={ROOM_SQFT_FS} fontWeight="600"
                   style={{filter:'drop-shadow(0 1px 3px rgba(0,0,0,0.9))'}}>
                   {room.sqft.toLocaleString()} sf
                 </text>
