@@ -70,6 +70,30 @@ function polygonPerimeterFt(points, fracPerFt, aspectRatio) {
   return perim
 }
 
+// ── Single wall's real-world length in feet — same formula as one
+// iteration of polygonPerimeterFt, so it always agrees with the total ──
+function edgeLengthFt(a, b, fracPerFt, aspectRatio) {
+  const dx = (b.x - a.x) / fracPerFt
+  const dy = (b.y - a.y) / (fracPerFt * aspectRatio)
+  return Math.sqrt(dx*dx + dy*dy)
+}
+
+// ── Format feet as feet'-inches", matching how a print labels a dimension ──
+function feetInchesLabel(ft) {
+  let totalInches = Math.round(ft * 12)
+  const feet = Math.floor(totalInches / 12)
+  const inches = totalInches % 12
+  return `${feet}'-${inches}"`
+}
+
+// ── Wall label font size, scaled to that wall's own on-screen length ──
+function wallLabelFontSize(a, b, imgWpx, imgHpx) {
+  const dxpx = (b.x - a.x) * imgWpx
+  const dypx = (b.y - a.y) * imgHpx
+  const lenPx = Math.sqrt(dxpx*dxpx + dypx*dypx)
+  return Math.min(Math.max(lenPx * 0.11, 8), 15)
+}
+
 // ── Nearest point on a line segment (for tap-to-insert-corner) ──
 function nearestPointOnSegment(px, py, ax, ay, bx, by) {
   const abx = bx-ax, aby = by-ay
@@ -1505,6 +1529,23 @@ const DrawScreen = React.forwardRef(function DrawScreen({ image, fracPerFt, aspe
               return (
                 <g key={room.id}>
                   <polygon points={toSvgPoints(room.points, imgSize.w, imgSize.h)} fill={(room.color||ROOM_COLORS[0]).fill} stroke={(room.color||ROOM_COLORS[0]).border} strokeWidth={2}/>
+                  {room.points.map((a, i) => {
+                    const b = room.points[(i+1) % room.points.length]
+                    const lenFt = edgeLengthFt(a, b, fracPerFt, aspectRatio)
+                    if (lenFt < 2) return null
+                    const midX = (a.x+b.x)/2, midY = (a.y+b.y)/2
+                    // Nudge toward the room's centroid so it sits just inside the wall, not on top of the line
+                    const lx = midX + (c.x - midX) * 0.12
+                    const ly = midY + (c.y - midY) * 0.12
+                    const fsWall = wallLabelFontSize(a, b, imgSize.w||400, imgSize.h||300)
+                    return (
+                      <text key={`wall-${room.id}-${i}`} x={`${lx*100}%`} y={`${ly*100}%`}
+                        textAnchor="middle" dominantBaseline="middle" fill="#fff" fontSize={fsWall} fontWeight="700"
+                        style={{filter:'drop-shadow(0 1px 2px rgba(0,0,0,0.85))'}}>
+                        {feetInchesLabel(lenFt)}
+                      </text>
+                    )
+                  })}
                   <text x={`${c.x*100}%`} y={`${c.y*100}%`}
                     textAnchor="middle" dominantBaseline="middle" fill="#fff" fontSize={fs1} fontWeight="800"
                     style={{filter:'drop-shadow(0 1px 2px rgba(0,0,0,0.8))'}}>
@@ -1713,7 +1754,7 @@ const DrawScreen = React.forwardRef(function DrawScreen({ image, fracPerFt, aspe
 })
 
 // ── Results Screen ────────────────────────────────────────────
-function ResultsScreen({ image, rooms, jobName, setJobName, onReset, onEdit }) {
+function ResultsScreen({ image, rooms, jobName, setJobName, fracPerFt, aspectRatio, onReset, onEdit }) {
   const [editingJobName, setEditingJobName] = useState(false)
   const [jobNameDraft,   setJobNameDraft]   = useState(jobName)
   const totalSqft  = Math.round(rooms.reduce((s,r)=>s+(r.sqft||0),0))
@@ -2045,15 +2086,32 @@ function ResultsScreen({ image, rooms, jobName, setJobName, onReset, onEdit }) {
           <svg style={{position:'absolute',inset:0,width:'100%',height:'100%',pointerEvents:'none'}}>
             {rooms.map(room => {
               const { name: nameFS, sqft: sqftFS } = roomLabelFontSizes(room, imgSize.w||400, imgSize.h||300)
+              const c = centroid(room.points)
               return (
               <g key={room.id}>
                 <polygon points={toSvgPoints(room.points,imgSize.w,imgSize.h)} fill={(room.color||ROOM_COLORS[0]).fill} stroke={(room.color||ROOM_COLORS[0]).border} strokeWidth="2"/>
-                <text x={`${centroid(room.points).x*100}%`} y={`${centroid(room.points).y*100}%`}
+                {fracPerFt && room.points.map((a, i) => {
+                  const b = room.points[(i+1) % room.points.length]
+                  const lenFt = edgeLengthFt(a, b, fracPerFt, aspectRatio)
+                  if (lenFt < 2) return null
+                  const midX = (a.x+b.x)/2, midY = (a.y+b.y)/2
+                  const lx = midX + (c.x - midX) * 0.12
+                  const ly = midY + (c.y - midY) * 0.12
+                  const fsWall = wallLabelFontSize(a, b, imgSize.w||400, imgSize.h||300)
+                  return (
+                    <text key={`wall-${room.id}-${i}`} x={`${lx*100}%`} y={`${ly*100}%`}
+                      textAnchor="middle" dominantBaseline="middle" fill="#fff" fontSize={fsWall} fontWeight="700"
+                      style={{filter:'drop-shadow(0 1px 3px rgba(0,0,0,0.9))'}}>
+                      {feetInchesLabel(lenFt)}
+                    </text>
+                  )
+                })}
+                <text x={`${c.x*100}%`} y={`${c.y*100}%`}
                   textAnchor="middle" dominantBaseline="middle" fill="#fff" fontSize={nameFS} fontWeight="800"
                   style={{filter:'drop-shadow(0 1px 3px rgba(0,0,0,0.9))'}}>
                   {room.name}
                 </text>
-                <text x={`${centroid(room.points).x*100}%`} y={`${centroid(room.points).y*100}%`} dy={nameFS*0.9}
+                <text x={`${c.x*100}%`} y={`${c.y*100}%`} dy={nameFS*0.9}
                   textAnchor="middle" dominantBaseline="middle" fill="rgba(255,255,255,0.9)" fontSize={sqftFS} fontWeight="600"
                   style={{filter:'drop-shadow(0 1px 3px rgba(0,0,0,0.9))'}}>
                   {room.sqft.toLocaleString()} sf
@@ -2237,7 +2295,7 @@ export default function App() {
       {screen==='straighten' && <StraightenScreen image={image} jobName={jobName} onDone={handleStraightenDone} onSkip={()=>setScreen('calibrate')} />}
       {screen==='calibrate' && <CalibrateScreen image={image} jobName={jobName} onDone={handleCalibrateDone} />}
       {screen==='draw'      && <DrawScreen      ref={drawScreenRef} image={image} fracPerFt={fracPerFt} aspectRatio={aspectRatio} rooms={rooms} jobName={jobName} onAddRoom={r=>setRooms(p=>[...p,r])} onRemoveRoom={id=>setRooms(p=>p.filter(r=>r.id!==id))} onUpdateRoom={(id,patch)=>setRooms(p=>p.map(r=>r.id===id?{...r,...patch}:r))} onFinish={()=>setScreen('results')} />}
-      {screen==='results'   && <ResultsScreen   image={image} rooms={rooms} jobName={jobName} setJobName={setJobName} onReset={reset} onEdit={()=>setScreen('draw')} />}
+      {screen==='results'   && <ResultsScreen   image={image} rooms={rooms} jobName={jobName} setJobName={setJobName} fracPerFt={fracPerFt} aspectRatio={aspectRatio} onReset={reset} onEdit={()=>setScreen('draw')} />}
       <div style={{textAlign:'center',padding:'12px',color:'#bbb',fontSize:11}}>TopCoat Tech · Blueprint Analyzer</div>
     </div>
     </ErrorBoundary>
