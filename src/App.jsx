@@ -1120,7 +1120,7 @@ function CalibrateScreen({ image, jobName, onDone }) {
 }
 
 // ── Drawing Screen ────────────────────────────────────────────
-function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, onRemoveRoom, onUpdateRoom, onFinish }) {
+const DrawScreen = React.forwardRef(function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, onRemoveRoom, onUpdateRoom, onFinish }, ref) {
   const [points,      setPoints]      = useState([])
   const [naming,      setNaming]      = useState(null)
   const [customName,  setCustomName]  = useState('')
@@ -1305,6 +1305,18 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
     setAddDetourActive(false); setAddDetourStart(null); setAddDetourPoints([])
   }
 
+  // Switches which corner tool is active WITHOUT leaving the room-edit
+  // session or discarding anything already done — same working copy of
+  // points carries over. Any in-progress (not yet closed) detour is
+  // dropped, and any selected corner is cleared since selection means
+  // different things in each tool.
+  function switchCornerTool(tool) {
+    if (tool === cornerTool) return
+    if (addDetourActive) cancelDetour()
+    setSelectedCornerIdx(null)
+    setCornerTool(tool)
+  }
+
   async function handleTap(e) {
     if (naming || identifying) return
     if (cornerTool) { handleCornerToolTap(e); return }
@@ -1392,6 +1404,19 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
     setPoints([])
     setEditingRoomId(null); setEditingColor(null); setEditingName(''); setEditingOriginalRoom(null)
   }
+
+  // Lets the parent check for, and safely back out of, an in-progress room
+  // edit before navigating away (back button / New Job) — so a room being
+  // edited, OR a brand-new room still being traced, can never just
+  // silently vanish.
+  React.useImperativeHandle(ref, () => ({
+    hasActiveRoomEdit: () => points.length > 0 || !!cornerTool,
+    cancelActiveRoomEdit: () => {
+      if (editingRoomId) cancelEditRoom()
+      else if (points.length > 0) { setPoints([]); setNaming(null); setCustomName('') }
+      if (cornerTool) cancelCornerTool()
+    }
+  }))
 
   const [imgSize, setImgSize] = useState({ w: 300, h: 400 })
   useEffect(() => {
@@ -1586,7 +1611,7 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
         </div>
       )}
 
-      {/* Edit Room bubble — 4 tools */}
+      {/* Edit Room bubble — 2 entry points */}
       {editBubbleRoom && (
         <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.4)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:50,padding:20}}
           onClick={()=>setEditBubbleRoom(null)}>
@@ -1599,23 +1624,10 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
               ✏️ Continue Tracing
               <div style={{fontSize:11,fontWeight:400,color:'#888',marginTop:2}}>Keep tracing new corners outward from where you closed it</div>
             </button>
-            <button onClick={()=>startCornerTool(editBubbleRoom, 'add')}
-              style={{width:'100%',textAlign:'left',padding:'11px 14px',marginBottom:8,background:'#fff8e1',border:'1px solid #ffe0a3',borderRadius:9,fontSize:14,fontWeight:600,color:'#8a5a00',cursor:'pointer'}}>
-              ➕ Add Corner
-              <div style={{fontSize:11,fontWeight:400,color:'#a17d33',marginTop:2}}>Tap a line to insert a corner there — for a missed bump-out</div>
-            </button>
             <button onClick={()=>startCornerTool(editBubbleRoom, 'move')}
-              style={{width:'100%',textAlign:'left',padding:'11px 14px',marginBottom:8,background:'#e0f2f1',border:'1px solid #80cbc4',borderRadius:9,fontSize:14,fontWeight:600,color:'#00695c',cursor:'pointer'}}>
-              🎯 Move Corner
-              <div style={{fontSize:11,fontWeight:400,color:'#3f8f83',marginTop:2}}>Nudge an existing corner into exact position</div>
-            </button>
-            <button onClick={()=>editBubbleRoom.points.length>3 && startCornerTool(editBubbleRoom, 'delete')}
-              disabled={editBubbleRoom.points.length<=3}
-              style={{width:'100%',textAlign:'left',padding:'11px 14px',marginBottom:14,background:editBubbleRoom.points.length<=3?'#f5f5f5':'#fdecea',border:`1px solid ${editBubbleRoom.points.length<=3?'#e0e0e0':'#f5c6c6'}`,borderRadius:9,fontSize:14,fontWeight:600,color:editBubbleRoom.points.length<=3?'#aaa':'#c62828',cursor:editBubbleRoom.points.length<=3?'not-allowed':'pointer'}}>
-              🗑️ Delete Corner
-              <div style={{fontSize:11,fontWeight:400,color:editBubbleRoom.points.length<=3?'#bbb':'#d17a76',marginTop:2}}>
-                {editBubbleRoom.points.length<=3 ? 'Room only has 3 corners — can\'t remove any' : 'Remove one corner from this room'}
-              </div>
+              style={{width:'100%',textAlign:'left',padding:'11px 14px',marginBottom:14,background:'#e0f2f1',border:'1px solid #80cbc4',borderRadius:9,fontSize:14,fontWeight:600,color:'#00695c',cursor:'pointer'}}>
+              🎯 Edit Corners
+              <div style={{fontSize:11,fontWeight:400,color:'#3f8f83',marginTop:2}}>Add, move, or delete corners — switch between them freely</div>
             </button>
             <button onClick={()=>setEditBubbleRoom(null)} style={{width:'100%',padding:'10px',background:'transparent',border:'none',fontSize:13,color:'#888',cursor:'pointer'}}>Cancel</button>
           </div>
@@ -1625,6 +1637,24 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
       {/* Corner tool panel (Move / Add / Delete) */}
       {cornerTool && (
         <div style={{padding:'10px 12px', flexShrink:0, background:'#f4f4f2', borderTop:'2px solid #e0e0e0'}}>
+          {/* Tool switcher — freely move between Add/Move/Delete without
+              leaving this room-edit session; the working points carry over. */}
+          <div style={{display:'flex',gap:6,marginBottom:10}}>
+            <button onClick={()=>switchCornerTool('add')}
+              style={{flex:1,padding:'8px 4px',background:cornerTool==='add'?'#f57f17':'#fff8e1',border:`1.5px solid ${cornerTool==='add'?'#f57f17':'#ffe0a3'}`,borderRadius:7,fontSize:12,fontWeight:cornerTool==='add'?700:600,color:cornerTool==='add'?'#fff':'#8a5a00',cursor:'pointer'}}>
+              ➕ Add
+            </button>
+            <button onClick={()=>switchCornerTool('move')}
+              style={{flex:1,padding:'8px 4px',background:cornerTool==='move'?'#00695c':'#e0f2f1',border:`1.5px solid ${cornerTool==='move'?'#00695c':'#80cbc4'}`,borderRadius:7,fontSize:12,fontWeight:cornerTool==='move'?700:600,color:cornerTool==='move'?'#fff':'#00695c',cursor:'pointer'}}>
+              🎯 Move
+            </button>
+            <button onClick={()=>cornerToolPoints && cornerToolPoints.length>3 && switchCornerTool('delete')}
+              disabled={cornerToolPoints && cornerToolPoints.length<=3}
+              title={cornerToolPoints && cornerToolPoints.length<=3 ? "Room only has 3 corners — can't remove any" : undefined}
+              style={{flex:1,padding:'8px 4px',background:cornerTool==='delete'?'#c62828':(cornerToolPoints&&cornerToolPoints.length<=3?'#f5f5f5':'#fdecea'),border:`1.5px solid ${cornerTool==='delete'?'#c62828':(cornerToolPoints&&cornerToolPoints.length<=3?'#e0e0e0':'#f5c6c6')}`,borderRadius:7,fontSize:12,fontWeight:cornerTool==='delete'?700:600,color:cornerTool==='delete'?'#fff':(cornerToolPoints&&cornerToolPoints.length<=3?'#aaa':'#c62828'),cursor:cornerToolPoints&&cornerToolPoints.length<=3?'not-allowed':'pointer'}}>
+              🗑️ Delete
+            </button>
+          </div>
           {cornerTool === 'add' && (
             <div style={{background:'#fff8e1',border:'1px solid #ffe0a3',borderRadius:8,padding:'10px 14px',fontSize:13,color:'#8a5a00',fontWeight:600,marginBottom:10,textAlign:'center'}}>
               {addDetourActive
@@ -1671,8 +1701,8 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
             <button onClick={cancelCornerTool} style={{flex:1,padding:'11px',background:'transparent',border:'1px solid #ddd',borderRadius:8,fontSize:14,color:'#888',cursor:'pointer'}}>
               Cancel
             </button>
-            <button onClick={finishCornerTool} style={{flex:2,padding:'11px',background:cornerToolColor[cornerTool],color:'#fff',border:'none',borderRadius:8,fontSize:14,fontWeight:700,cursor:'pointer'}}>
-              {cornerTool === 'add' ? '✓ Done Adding Corners' : cornerTool === 'delete' ? '✓ Done Deleting' : '✓ Done Moving Corner'}
+            <button onClick={finishCornerTool} style={{flex:2,padding:'11px',background:ORANGE,color:'#fff',border:'none',borderRadius:8,fontSize:14,fontWeight:700,cursor:'pointer'}}>
+              ✓ Done Editing Room
             </button>
           </div>
           )}
@@ -1680,7 +1710,7 @@ function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, 
       )}
     </div>
   )
-}
+})
 
 // ── Results Screen ────────────────────────────────────────────
 function ResultsScreen({ image, rooms, jobName, setJobName, onReset, onEdit }) {
@@ -2141,6 +2171,7 @@ export default function App() {
   const [error,       setError]       = useState('')
   const [converting,  setConverting]  = useState(false)
   const [pdfPicker,   setPdfPicker]   = useState(null) // {thumbnails, buffer, name, size} for multi-page PDFs
+  const drawScreenRef = useRef() // lets handleBack/reset check for & safely cancel a mid-edit room
 
   const handleFile = useCallback((payload) => {
     if (payload.loading) { setConverting(true); setError(''); return }
@@ -2173,6 +2204,10 @@ export default function App() {
   }
 
   function handleBack() {
+    if (screen === 'draw' && drawScreenRef.current?.hasActiveRoomEdit()) {
+      if (!window.confirm("You're mid-edit on a room. Leave without finishing? Any un-saved changes will be discarded.")) return
+      drawScreenRef.current.cancelActiveRoomEdit()
+    }
     if (screen === 'pdfPages') { setPdfPicker(null); setImage(null); setScreen('upload') }
     else if (screen === 'straighten') {
       if (pdfPicker) setScreen('pdfPages')
@@ -2184,6 +2219,10 @@ export default function App() {
   }
 
   function reset() {
+    if (screen === 'draw' && drawScreenRef.current?.hasActiveRoomEdit()) {
+      if (!window.confirm("You're mid-edit on a room. Start a new job anyway? Any un-saved changes will be discarded.")) return
+      drawScreenRef.current.cancelActiveRoomEdit()
+    }
     setScreen('upload'); setImage(null); setFracPerFt(null); setRooms([]); setError(''); setConverting(false)
     setJobName(''); setPdfPicker(null)
   }
@@ -2197,7 +2236,7 @@ export default function App() {
       {screen==='pdfPages'  && pdfPicker && <PdfPageScreen thumbnails={pdfPicker.thumbnails} buffer={pdfPicker.buffer} pdfName={pdfPicker.name} pdfSize={pdfPicker.size} jobName={jobName} onImported={handlePdfPageImported} />}
       {screen==='straighten' && <StraightenScreen image={image} jobName={jobName} onDone={handleStraightenDone} onSkip={()=>setScreen('calibrate')} />}
       {screen==='calibrate' && <CalibrateScreen image={image} jobName={jobName} onDone={handleCalibrateDone} />}
-      {screen==='draw'      && <DrawScreen      image={image} fracPerFt={fracPerFt} aspectRatio={aspectRatio} rooms={rooms} jobName={jobName} onAddRoom={r=>setRooms(p=>[...p,r])} onRemoveRoom={id=>setRooms(p=>p.filter(r=>r.id!==id))} onUpdateRoom={(id,patch)=>setRooms(p=>p.map(r=>r.id===id?{...r,...patch}:r))} onFinish={()=>setScreen('results')} />}
+      {screen==='draw'      && <DrawScreen      ref={drawScreenRef} image={image} fracPerFt={fracPerFt} aspectRatio={aspectRatio} rooms={rooms} jobName={jobName} onAddRoom={r=>setRooms(p=>[...p,r])} onRemoveRoom={id=>setRooms(p=>p.filter(r=>r.id!==id))} onUpdateRoom={(id,patch)=>setRooms(p=>p.map(r=>r.id===id?{...r,...patch}:r))} onFinish={()=>setScreen('results')} />}
       {screen==='results'   && <ResultsScreen   image={image} rooms={rooms} jobName={jobName} setJobName={setJobName} onReset={reset} onEdit={()=>setScreen('draw')} />}
       <div style={{textAlign:'center',padding:'12px',color:'#bbb',fontSize:11}}>TopCoat Tech · Blueprint Analyzer</div>
     </div>
