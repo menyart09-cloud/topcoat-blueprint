@@ -214,11 +214,11 @@ function renderEdgeHintMarker(x, y, key) {
 // every room (same inches everywhere) AND naturally grows/shrinks as you
 // zoom in/out, proportionally with the walls and everything else on the
 // drawing — rather than staying a constant screen size regardless of zoom.
-// These are a starting point, calibrated by eye against a ~20'x30' garage,
-// meant to be dialed in from here.
-const ROOM_NAME_INCHES  = 5.6
-const ROOM_SQFT_INCHES  = 4.2
-const WALL_LABEL_INCHES = 3.5
+// DEFAULT_LABEL_SIZE_INCHES is the starting value for the user-adjustable
+// "Label Size" control — name/sq ft stay proportional multiples of it.
+const DEFAULT_LABEL_SIZE_INCHES = 3.5
+const NAME_TO_WALL_RATIO = 5.6 / 3.5
+const SQFT_TO_WALL_RATIO = 4.2 / 3.5
 
 // Converts a real-world inch height into a pixel font-size AT ZOOM=1 (i.e.
 // against the image's own unscaled display width). Rendering this inside
@@ -231,26 +231,11 @@ function inchesToFontSize(inches, fracPerFt, imgWpx) {
   return Math.max(frac * imgWpx, 4)
 }
 
-// ── Derive label sizes (in real-world inches) from the AI's estimate of
-// the print's own dimension-text height, falling back to the fixed
-// defaults above when no estimate is available. dimTextHeightFrac is a
-// fraction of the image's HEIGHT (per the scan prompt), so it has to go
-// through the same width/height unit conversion used everywhere else
-// (dividing by aspectRatio) before it can be compared to fracPerFt, which
-// is width-based — the same distinction that mattered for the calibration
-// fix earlier.
-function getLabelInches(aiDimTextHeightFrac, fracPerFt, aspectRatio) {
-  if (aiDimTextHeightFrac && fracPerFt) {
-    const widthFracEquivalent = aiDimTextHeightFrac / aspectRatio
-    const feet = widthFracEquivalent / fracPerFt
-    const wallInches = feet * 12
-    // Sanity clamp — real dimension text on a print is virtually always
-    // in this range; guards against a wild AI misread.
-    if (wallInches >= 2 && wallInches <= 24) {
-      return { name: wallInches * (ROOM_NAME_INCHES/WALL_LABEL_INCHES), sqft: wallInches * (ROOM_SQFT_INCHES/WALL_LABEL_INCHES), wall: wallInches }
-    }
-  }
-  return { name: ROOM_NAME_INCHES, sqft: ROOM_SQFT_INCHES, wall: WALL_LABEL_INCHES }
+// ── Derive name/sqft/wall label sizes (in real-world inches) from the
+// single user-adjustable base value, keeping the same proportions.
+function getLabelInches(labelSizeInches) {
+  const wall = labelSizeInches || DEFAULT_LABEL_SIZE_INCHES
+  return { name: wall * NAME_TO_WALL_RATIO, sqft: wall * SQFT_TO_WALL_RATIO, wall }
 }
 
 // ── Clamp a fractional image coordinate to [0,1] ────────────────
@@ -359,13 +344,11 @@ async function scanRoomNames(base64, mime, polygonCenter) {
     : ''
 
   const prompt = `Look carefully at this blueprint floor plan image.
+Find and list ALL room names, space labels, and area names printed on it.
+Include every labeled space you can see.${centerHint}
 
-TASK 1: Find and list ALL room names, space labels, and area names printed on it. Include every labeled space you can see.${centerHint}
-
-TASK 2: Find a printed DIMENSION callout on the drawing — a measurement string like 12'-6" or 8'-0" that labels a wall or distance (NOT a room name). Estimate the HEIGHT of that dimension text as a fraction of this image's total height (a number between 0 and 1, e.g. 0.012 for text that's about 1.2% of the image's height). If you can't find any clear dimension text, omit this value.
-
-Respond ONLY with JSON in this exact shape, no markdown:
-{"names": ["Most Likely Room", "Other Room"], "dimTextHeightFrac": 0.012}`
+Respond ONLY with a JSON array of strings — room names only:
+["Most Likely Room", "Other Room", "Another Room"]`
 
   try {
     const smallBase64 = await compressImage(base64, mime, 0.5)
@@ -375,8 +358,7 @@ Respond ONLY with JSON in this exact shape, no markdown:
     })
     const data = await res.json()
     if (!res.ok) return null
-    if (Array.isArray(data)) return { names: data, dimTextHeightFrac: null } // legacy shape safety net
-    if (data && Array.isArray(data.names)) return { names: data.names, dimTextHeightFrac: data.dimTextHeightFrac ?? null }
+    if (Array.isArray(data)) return data
     return null
   } catch { return null }
 }
@@ -1163,7 +1145,7 @@ function CalibrateScreen({ image, jobName, onDone }) {
 }
 
 // ── Drawing Screen ────────────────────────────────────────────
-const DrawScreen = React.forwardRef(function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, onRemoveRoom, onUpdateRoom, onFinish, onDimTextHeightScanned, aiDimTextHeightFrac }, ref) {
+const DrawScreen = React.forwardRef(function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, onRemoveRoom, onUpdateRoom, onFinish, labelSizeInches, setLabelSizeInches }, ref) {
   const [points,      setPoints]      = useState([])
   const [naming,      setNaming]      = useState(null)
   const [customName,  setCustomName]  = useState('')
@@ -1394,10 +1376,8 @@ const DrawScreen = React.forwardRef(function DrawScreen({ image, fracPerFt, aspe
     if (scannedNames === null && !scanningNames) {
       setScanningNames(true)
       const polyCenter = centroid(points)
-      const result = await scanRoomNames(image.base64, image.mime, polyCenter)
-      const names = result?.names
+      const names = await scanRoomNames(image.base64, image.mime, polyCenter)
       setScannedNames(names && names.length > 0 ? names : [])
-      if (result?.dimTextHeightFrac && onDimTextHeightScanned) onDimTextHeightScanned(result.dimTextHeightFrac)
       setScanningNames(false)
     }
   }
@@ -1542,7 +1522,7 @@ const DrawScreen = React.forwardRef(function DrawScreen({ image, fracPerFt, aspe
           <svg style={{position:'absolute',inset:0,width:'100%',height:'100%',pointerEvents:'none'}}>
             {rooms.map(room => {
               const c = centroid(room.points)
-              const labelInches = getLabelInches(aiDimTextHeightFrac, fracPerFt, aspectRatio)
+              const labelInches = getLabelInches(labelSizeInches)
               const nameFS = inchesToFontSize(labelInches.name, fracPerFt, imgSize.w||400)
               const sqftFS = inchesToFontSize(labelInches.sqft, fracPerFt, imgSize.w||400)
               const wallFS = inchesToFontSize(labelInches.wall, fracPerFt, imgSize.w||400)
@@ -1642,6 +1622,18 @@ const DrawScreen = React.forwardRef(function DrawScreen({ image, fracPerFt, aspe
           )}
           {rooms.length>0 && points.length===0 && (
             <>
+              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,padding:'8px 10px',background:'#fff',border:'1px solid #e0e0e0',borderRadius:8,marginBottom:8}}>
+                <span style={{fontSize:13,fontWeight:600,color:'#333'}}>Label Size</span>
+                <div style={{display:'flex',alignItems:'center',gap:6}}>
+                  <button onClick={()=>setLabelSizeInches(v=>Math.max(1, Math.round((v-0.5)*10)/10))}
+                    style={{width:26,height:26,borderRadius:6,border:`1.5px solid ${ORANGE}`,background:'#fff',color:ORANGE,fontSize:14,fontWeight:700,cursor:'pointer'}}>–</button>
+                  <div style={{width:52,height:26,border:'1.5px solid #ddd',borderRadius:6,display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,fontWeight:600,background:'#fff'}}>
+                    {labelSizeInches}"
+                  </div>
+                  <button onClick={()=>setLabelSizeInches(v=>Math.min(24, Math.round((v+0.5)*10)/10))}
+                    style={{width:26,height:26,borderRadius:6,border:`1.5px solid ${ORANGE}`,background:'#fff',color:ORANGE,fontSize:14,fontWeight:700,cursor:'pointer'}}>+</button>
+                </div>
+              </div>
               <div style={{maxHeight:160,overflowY:'auto',marginBottom:8,WebkitOverflowScrolling:'touch'}}>
                 {rooms.map(room => (
                   <div key={room.id} style={{display:'flex',alignItems:'center',gap:8,padding:'6px 8px',background:'#fff',border:'1px solid #e8e8e8',borderRadius:7,marginBottom:5}}>
@@ -1772,7 +1764,7 @@ const DrawScreen = React.forwardRef(function DrawScreen({ image, fracPerFt, aspe
 })
 
 // ── Results Screen ────────────────────────────────────────────
-function ResultsScreen({ image, rooms, jobName, setJobName, fracPerFt, aspectRatio, aiDimTextHeightFrac, onReset, onEdit }) {
+function ResultsScreen({ image, rooms, jobName, setJobName, fracPerFt, aspectRatio, labelSizeInches, onReset, onEdit }) {
   const [editingJobName, setEditingJobName] = useState(false)
   const [jobNameDraft,   setJobNameDraft]   = useState(jobName)
   const totalSqft  = Math.round(rooms.reduce((s,r)=>s+(r.sqft||0),0))
@@ -1905,23 +1897,37 @@ function ResultsScreen({ image, rooms, jobName, setJobName, fracPerFt, aspectRat
         const c = centroid(room.points)
         const cx = toCanvasX(c.x)
         const cy = toCanvasY(c.y)
-        // Compute the room's box size in the CROPPED image's own pixel space —
-        // room.points are fractions of the full uncropped blueprint, so they must
-        // go through the same crop-aware transform used to draw the polygon itself,
-        // not be multiplied directly by cappedImgW (which is just the crop's size).
-        let rMinX=1, rMinY=1, rMaxX=0, rMaxY=0
-        room.points.forEach(p => {
-          if (p.x < rMinX) rMinX = p.x
-          if (p.y < rMinY) rMinY = p.y
-          if (p.x > rMaxX) rMaxX = p.x
-          if (p.y > rMaxY) rMaxY = p.y
-        })
-        const roomBoxWpx = toCanvasX(rMaxX) - toCanvasX(rMinX)
-        const roomBoxHpx = toCanvasY(rMaxY) - toCanvasY(rMinY)
-        const labelMetric = Math.sqrt(Math.max(roomBoxWpx * roomBoxHpx, 1))
-        const labelMaxCap = Math.max(cappedImgW * 0.07, 24)
-        const nameFS = Math.min(Math.max(labelMetric * 0.06, 12), labelMaxCap)
-        const sqftFS = nameFS * 0.65
+        // The report draws onto a CROPPED canvas, so the inches-based font
+        // size (calibrated against the FULL image via fracPerFt) has to be
+        // converted into the crop's own coordinate space — effectiveImgW is
+        // "what the full image's width would be at this crop's pixel
+        // density," which inchesToFontSize can use directly.
+        const effectiveImgW = cappedImgW / (cropX2 - cropX1)
+        const labelInches = getLabelInches(labelSizeInches)
+        const nameFS = inchesToFontSize(labelInches.name, fracPerFt, effectiveImgW)
+        const sqftFS = inchesToFontSize(labelInches.sqft, fracPerFt, effectiveImgW)
+        const wallFS = inchesToFontSize(labelInches.wall, fracPerFt, effectiveImgW)
+        // Wall length labels — same feet-inches format and placement (just
+        // inside the wall, nudged toward centroid) as the live views, so
+        // what you tune while testing is exactly what ends up in the report.
+        if (fracPerFt) {
+          room.points.forEach((a, i) => {
+            const b = room.points[(i+1) % room.points.length]
+            const lenFt = edgeLengthFt(a, b, fracPerFt, aspectRatio)
+            if (lenFt < 2) return
+            const midX = (a.x+b.x)/2, midY = (a.y+b.y)/2
+            const lx = midX + (c.x - midX) * 0.05
+            const ly = midY + (c.y - midY) * 0.05
+            const lcx = toCanvasX(lx), lcy = toCanvasY(ly)
+            ctx.font = `${wallFS}px Arial`
+            ctx.fillStyle = '#fff'
+            ctx.lineWidth = 3
+            ctx.strokeStyle = 'rgba(255,255,255,0.9)'
+            ctx.strokeText(feetInchesLabel(lenFt), lcx, lcy)
+            ctx.fillStyle = '#000'
+            ctx.fillText(feetInchesLabel(lenFt), lcx, lcy)
+          })
+        }
         ctx.fillStyle = room.color?.border || '#e53935'
         ctx.font = `bold ${nameFS}px Arial`
         ctx.textAlign = 'center'
@@ -2104,7 +2110,7 @@ function ResultsScreen({ image, rooms, jobName, setJobName, fracPerFt, aspectRat
           <svg style={{position:'absolute',inset:0,width:'100%',height:'100%',pointerEvents:'none'}}>
             {rooms.map(room => {
               const c = centroid(room.points)
-              const labelInches = getLabelInches(aiDimTextHeightFrac, fracPerFt, aspectRatio)
+              const labelInches = getLabelInches(labelSizeInches)
               const nameFS = inchesToFontSize(labelInches.name, fracPerFt, imgSize.w||400)
               const sqftFS = inchesToFontSize(labelInches.sqft, fracPerFt, imgSize.w||400)
               const wallFS = inchesToFontSize(labelInches.wall, fracPerFt, imgSize.w||400)
@@ -2244,7 +2250,7 @@ export default function App() {
   const [image,       setImage]       = useState(null)
   const [fracPerFt,   setFracPerFt]   = useState(null)
   const [aspectRatio, setAspectRatio] = useState(1.4)
-  const [aiDimTextHeightFrac, setAiDimTextHeightFrac] = useState(null) // AI estimate of the print's own dimension text height, once scanned
+  const [labelSizeInches, setLabelSizeInches] = useState(DEFAULT_LABEL_SIZE_INCHES) // user-adjustable wall-label size; name/sqft scale proportionally
   const [rooms,       setRooms]       = useState([])
   const [jobName,     setJobName]     = useState('')
   const [error,       setError]       = useState('')
@@ -2303,7 +2309,7 @@ export default function App() {
       drawScreenRef.current.cancelActiveRoomEdit()
     }
     setScreen('upload'); setImage(null); setFracPerFt(null); setRooms([]); setError(''); setConverting(false)
-    setJobName(''); setPdfPicker(null); setAiDimTextHeightFrac(null)
+    setJobName(''); setPdfPicker(null); setLabelSizeInches(DEFAULT_LABEL_SIZE_INCHES)
   }
 
   return (
@@ -2315,8 +2321,8 @@ export default function App() {
       {screen==='pdfPages'  && pdfPicker && <PdfPageScreen thumbnails={pdfPicker.thumbnails} buffer={pdfPicker.buffer} pdfName={pdfPicker.name} pdfSize={pdfPicker.size} jobName={jobName} onImported={handlePdfPageImported} />}
       {screen==='straighten' && <StraightenScreen image={image} jobName={jobName} onDone={handleStraightenDone} onSkip={()=>setScreen('calibrate')} />}
       {screen==='calibrate' && <CalibrateScreen image={image} jobName={jobName} onDone={handleCalibrateDone} />}
-      {screen==='draw'      && <DrawScreen      ref={drawScreenRef} image={image} fracPerFt={fracPerFt} aspectRatio={aspectRatio} rooms={rooms} jobName={jobName} onAddRoom={r=>setRooms(p=>[...p,r])} onRemoveRoom={id=>setRooms(p=>p.filter(r=>r.id!==id))} onUpdateRoom={(id,patch)=>setRooms(p=>p.map(r=>r.id===id?{...r,...patch}:r))} onFinish={()=>setScreen('results')} onDimTextHeightScanned={setAiDimTextHeightFrac} aiDimTextHeightFrac={aiDimTextHeightFrac} />}
-      {screen==='results'   && <ResultsScreen   image={image} rooms={rooms} jobName={jobName} setJobName={setJobName} fracPerFt={fracPerFt} aspectRatio={aspectRatio} aiDimTextHeightFrac={aiDimTextHeightFrac} onReset={reset} onEdit={()=>setScreen('draw')} />}
+      {screen==='draw'      && <DrawScreen      ref={drawScreenRef} image={image} fracPerFt={fracPerFt} aspectRatio={aspectRatio} rooms={rooms} jobName={jobName} onAddRoom={r=>setRooms(p=>[...p,r])} onRemoveRoom={id=>setRooms(p=>p.filter(r=>r.id!==id))} onUpdateRoom={(id,patch)=>setRooms(p=>p.map(r=>r.id===id?{...r,...patch}:r))} onFinish={()=>setScreen('results')} labelSizeInches={labelSizeInches} setLabelSizeInches={setLabelSizeInches} />}
+      {screen==='results'   && <ResultsScreen   image={image} rooms={rooms} jobName={jobName} setJobName={setJobName} fracPerFt={fracPerFt} aspectRatio={aspectRatio} labelSizeInches={labelSizeInches} onReset={reset} onEdit={()=>setScreen('draw')} />}
       <div style={{textAlign:'center',padding:'12px',color:'#bbb',fontSize:11}}>TopCoat Tech · Blueprint Analyzer</div>
     </div>
     </ErrorBoundary>
