@@ -216,9 +216,9 @@ function renderEdgeHintMarker(x, y, key) {
 // drawing — rather than staying a constant screen size regardless of zoom.
 // These are a starting point, calibrated by eye against a ~20'x30' garage,
 // meant to be dialed in from here.
-const ROOM_NAME_INCHES  = 8
-const ROOM_SQFT_INCHES  = 6
-const WALL_LABEL_INCHES = 5
+const ROOM_NAME_INCHES  = 5.6
+const ROOM_SQFT_INCHES  = 4.2
+const WALL_LABEL_INCHES = 3.5
 
 // Converts a real-world inch height into a pixel font-size AT ZOOM=1 (i.e.
 // against the image's own unscaled display width). Rendering this inside
