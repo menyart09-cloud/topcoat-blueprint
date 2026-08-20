@@ -4,9 +4,7 @@ export default async function handler(req, res) {
   if (!base64 || !mime) return res.status(400).json({ error: 'Missing image data' })
   if (base64.length > 6_000_000) return res.status(413).json({ error: 'Image too large.' })
 
-  // Mode: roomlist — scan blueprint and return room names + optional
-  // estimate of the print's own dimension-text height (as a fraction of
-  // image height), used to size our added measurement labels to match.
+  // Mode: roomlist — scan blueprint and return all room names as array
   if (mode === 'roomlist') {
     const prompt = customPrompt || `Look at this blueprint floor plan. List every room name and space label printed on it. Respond ONLY with a JSON array: ["Room 1", "Room 2"]`
     try {
@@ -22,31 +20,19 @@ export default async function handler(req, res) {
         })
       })
       const data = await response.json()
-      if (!response.ok) return res.status(200).json({ names: [] })
+      if (!response.ok) return res.status(200).json([])
       const raw = (data.content || []).map(b => b.text || '').join('').trim()
-      // Names: accept either a bare array (legacy) or an object with a
-      // "names" array plus an optional dimension-text-height estimate.
-      let names = []
-      let dimTextHeightFrac = null
-      const objMatch = raw.match(/\{[\s\S]*\}/)
-      if (objMatch) {
+      const match = raw.match(/\[[\s\S]*?\]/)
+      if (match) {
         try {
-          const obj = JSON.parse(objMatch[0])
-          if (Array.isArray(obj.names)) names = obj.names
-          if (typeof obj.dimTextHeightFrac === 'number' && obj.dimTextHeightFrac > 0 && obj.dimTextHeightFrac < 0.05) {
-            dimTextHeightFrac = obj.dimTextHeightFrac
+          const arr = JSON.parse(match[0])
+          if (Array.isArray(arr)) {
+            return res.status(200).json([...new Set(arr.filter(n => typeof n === 'string' && n.trim()).map(n => n.trim()))])
           }
-        } catch (e) {}
+        } catch(e) {}
       }
-      if (names.length === 0) {
-        const arrMatch = raw.match(/\[[\s\S]*?\]/)
-        if (arrMatch) {
-          try { const arr = JSON.parse(arrMatch[0]); if (Array.isArray(arr)) names = arr } catch (e) {}
-        }
-      }
-      names = [...new Set(names.filter(n => typeof n === 'string' && n.trim()).map(n => n.trim()))]
-      return res.status(200).json({ names, dimTextHeightFrac })
-    } catch { return res.status(200).json({ names: [] }) }
+      return res.status(200).json([])
+    } catch { return res.status(200).json([]) }
   }
 
   // Mode: identify — name a single room
