@@ -216,7 +216,7 @@ function renderEdgeHintMarker(x, y, key) {
 // drawing — rather than staying a constant screen size regardless of zoom.
 // DEFAULT_LABEL_SIZE_INCHES is the starting value for the user-adjustable
 // "Label Size" control — name/sq ft stay proportional multiples of it.
-const DEFAULT_LABEL_SIZE_INCHES = 3.5
+const DEFAULT_LABEL_SIZE_INCHES = 5
 const NAME_TO_WALL_RATIO = 5.6 / 3.5
 const SQFT_TO_WALL_RATIO = 4.2 / 3.5
 
@@ -271,7 +271,7 @@ async function renderPdfPageToDataUrl(pdfDoc, pageNum, scale, quality = 0.95) {
 // quality. Multi-page PDFs return low-res thumbnails of every page
 // so the user can pick which one to import, plus the raw bytes so
 // the chosen page can be re-rendered at full quality afterward. ──
-async function pdfFileToPageInfo(file) {
+async function pdfFileToPageInfo(file, onProgress) {
   const arrayBuffer = await new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onerror = () => reject(new Error('Could not read PDF'))
@@ -292,6 +292,7 @@ async function pdfFileToPageInfo(file) {
   for (let p = 1; p <= pdfDoc.numPages; p++) {
     const thumb = await renderPdfPageToDataUrl(pdfDoc, p, 0.35, 0.7)
     thumbnails.push({ pageNum: p, thumb })
+    if (onProgress) onProgress(p, pdfDoc.numPages)
   }
   return { single: false, thumbnails, buffer: arrayBuffer, name: file.name, size: file.size }
 }
@@ -510,7 +511,7 @@ function Header({ screen, onBack, onReset }) {
 }
 
 // ── Upload Screen ─────────────────────────────────────────────
-function UploadScreen({ onFile, error, converting, jobName, setJobName }) {
+function UploadScreen({ onFile, error, converting, convertProgress, jobName, setJobName }) {
   const [drag, setDrag] = useState(false)
   const uploadRef = useRef()
   const cameraRef = useRef()
@@ -521,7 +522,7 @@ function UploadScreen({ onFile, error, converting, jobName, setJobName }) {
     if (file.name?.toLowerCase().endsWith('.pdf') || file.type === 'application/pdf') {
       onFile({ loading: true })
       try {
-        const info = await pdfFileToPageInfo(file)
+        const info = await pdfFileToPageInfo(file, (current, total) => onFile({ loading: true, progress: { current, total } }))
         if (info.single) {
           onFile({ src: info.src, base64: info.base64, mime: info.mime, name: info.name, size: info.size, fromPdf: true })
         } else {
@@ -573,7 +574,18 @@ function UploadScreen({ onFile, error, converting, jobName, setJobName }) {
         style={{ border:`2px dashed ${drag?ORANGE:'#ccc'}`, borderRadius:14, padding:'24px 20px', textAlign:'center', cursor:converting?'wait':'pointer', background:drag?'#f0faff':'#fff' }}>
         <input ref={uploadRef} type="file" accept="image/jpeg,image/png,image/gif,image/webp,image/heic,.pdf,application/pdf" style={{ display:'none' }} onChange={e=>handleFiles(e.target.files)} />
         {converting ? (
-          <><div style={{fontSize:28,marginBottom:8}}>⏳</div><div style={{fontWeight:600,fontSize:14,color:'#222'}}>Converting PDF…</div></>
+          convertProgress ? (
+            <>
+              <div style={{width:36,height:36,border:'3px solid #e0e0e0',borderTop:`3px solid ${ORANGE}`,borderRadius:'50%',margin:'0 auto 14px',animation:'spin 0.8s linear infinite'}}/>
+              <div style={{fontWeight:600,fontSize:14,color:'#222',marginBottom:10}}>Generating previews — page {convertProgress.current} of {convertProgress.total}</div>
+              <div style={{width:'100%',height:8,background:'#e8e8e8',borderRadius:4,overflow:'hidden'}}>
+                <div style={{width:`${(convertProgress.current/convertProgress.total)*100}%`,height:'100%',background:ORANGE,borderRadius:4,transition:'width 0.2s'}}/>
+              </div>
+              <style>{'@keyframes spin{to{transform:rotate(360deg)}}'}</style>
+            </>
+          ) : (
+            <><div style={{fontSize:28,marginBottom:8}}>⏳</div><div style={{fontWeight:600,fontSize:14,color:'#222'}}>Converting PDF…</div></>
+          )
         ) : (
           <><div style={{fontSize:32,marginBottom:8}}>📄</div><div style={{fontWeight:600,fontSize:14,color:'#222',marginBottom:4}}>Upload Blueprint</div><div style={{fontSize:13,color:'#999'}}>PDF · JPG · PNG · WEBP</div><div style={{marginTop:8,display:'inline-block',background:'#e0f0f8',color:'#005f8a',borderRadius:6,padding:'3px 10px',fontSize:12,fontWeight:600}}>✓ PDF supported</div></>
         )}
@@ -2255,12 +2267,13 @@ export default function App() {
   const [jobName,     setJobName]     = useState('')
   const [error,       setError]       = useState('')
   const [converting,  setConverting]  = useState(false)
+  const [convertProgress, setConvertProgress] = useState(null) // {current,total} while generating PDF page previews
   const [pdfPicker,   setPdfPicker]   = useState(null) // {thumbnails, buffer, name, size} for multi-page PDFs
   const drawScreenRef = useRef() // lets handleBack/reset check for & safely cancel a mid-edit room
 
   const handleFile = useCallback((payload) => {
-    if (payload.loading) { setConverting(true); setError(''); return }
-    setConverting(false)
+    if (payload.loading) { setConverting(true); setError(''); setConvertProgress(payload.progress || null); return }
+    setConverting(false); setConvertProgress(null)
     if (payload.error) { setError(payload.error); return }
     if (payload.needsPageSelect) {
       setError('')
@@ -2317,7 +2330,7 @@ export default function App() {
     <div style={{ minHeight:'100vh', background:'#f4f4f2' }}>
       <style>{`@keyframes spin{to{transform:rotate(360deg)}} .fade-in{animation:fadeIn 0.3s ease forwards} @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}`}</style>
       <Header screen={screen} onBack={handleBack} onReset={reset} />
-      {screen==='upload'    && <UploadScreen    onFile={handleFile} error={error} converting={converting} jobName={jobName} setJobName={setJobName} />}
+      {screen==='upload'    && <UploadScreen    onFile={handleFile} error={error} converting={converting} convertProgress={convertProgress} jobName={jobName} setJobName={setJobName} />}
       {screen==='pdfPages'  && pdfPicker && <PdfPageScreen thumbnails={pdfPicker.thumbnails} buffer={pdfPicker.buffer} pdfName={pdfPicker.name} pdfSize={pdfPicker.size} jobName={jobName} onImported={handlePdfPageImported} />}
       {screen==='straighten' && <StraightenScreen image={image} jobName={jobName} onDone={handleStraightenDone} onSkip={()=>setScreen('calibrate')} />}
       {screen==='calibrate' && <CalibrateScreen image={image} jobName={jobName} onDone={handleCalibrateDone} />}
