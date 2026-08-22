@@ -1657,7 +1657,7 @@ const DrawScreen = React.forwardRef(function DrawScreen({ image, fracPerFt, aspe
                     <button onClick={()=>setEditBubbleRoom(room)} title="Edit room"
                       style={{padding:'6px 9px',background:'#f0f0f0',border:'1px solid #ddd',borderRadius:6,fontSize:13,cursor:'pointer',flexShrink:0}}>✏️</button>
                     <button onClick={()=>onRemoveRoom(room.id)} title="Delete room"
-                      style={{padding:'6px 9px',background:'#fdecea',border:'1px solid #f5c6c6',color:'#c62828',borderRadius:6,fontSize:13,cursor:'pointer',flexShrink:0}}>✕</button>
+                      style={{padding:'6px 9px',background:'#fdecea',border:'1px solid #f5c6c6',color:'#c62828',borderRadius:6,fontSize:13,cursor:'pointer',flexShrink:0}}>🗑️</button>
                   </div>
                 ))}
               </div>
@@ -1776,7 +1776,7 @@ const DrawScreen = React.forwardRef(function DrawScreen({ image, fracPerFt, aspe
 })
 
 // ── Results Screen ────────────────────────────────────────────
-const ResultsScreen = React.forwardRef(function ResultsScreen({ image, rooms, jobName, setJobName, fracPerFt, aspectRatio, labelSizeInches, onReset, onEdit, onSaved }, ref) {
+const ResultsScreen = React.forwardRef(function ResultsScreen({ image, rooms, jobName, setJobName, fracPerFt, aspectRatio, labelSizeInches, miscItems, setMiscItems, onReset, onEdit, onSaved }, ref) {
   const [editingJobName, setEditingJobName] = useState(false)
   const [jobNameDraft,   setJobNameDraft]   = useState(jobName)
   React.useImperativeHandle(ref, () => ({ triggerSave: () => handleSave() }))
@@ -1790,8 +1790,9 @@ const ResultsScreen = React.forwardRef(function ResultsScreen({ image, rooms, jo
     const p = parseFloat(roomPrices[room.id] || '')
     return (!isNaN(p) && p > 0) ? p * (room.sqft || 0) : 0
   }
-  const grandTotal = rooms.reduce((s, r) => s + getRoomTotal(r), 0)
-  const hasAnyPrice = rooms.some(r => parseFloat(roomPrices[r.id] || '') > 0)
+  const miscTotal = miscItems.reduce((s, i) => s + (parseFloat(i.amount) || 0), 0)
+  const grandTotal = rooms.reduce((s, r) => s + getRoomTotal(r), 0) + miscTotal
+  const hasAnyPrice = rooms.some(r => parseFloat(roomPrices[r.id] || '') > 0) || miscTotal > 0
   const blueprintRef = useRef()
   const [imgSize, setImgSize] = useState({ w: 300, h: 400 })
 
@@ -1865,6 +1866,7 @@ const ResultsScreen = React.forwardRef(function ResultsScreen({ image, rooms, jo
         (hasAnyPrice ? F_est * 2.5 : 0) +                                 // price line
         F_est * 1.5 +                                                    // divider
         Math.ceil(rooms.length / Math.min(2, Math.max(rooms.length,1))) * F_est * 5.6 +           // room rows (1 col if only 1 room, else 2)
+        (miscItems.length > 0 ? F_est * 1.6 + miscItems.length * F_est * 1.5 : 0) +               // misc items header + one line each
         F_est * 3.0                                                      // footer + bottom pad
       )
       const rowH    = Math.round((legendH - 220) / Math.max(rooms.length, 1))
@@ -2070,6 +2072,33 @@ const ResultsScreen = React.forwardRef(function ResultsScreen({ image, rooms, jo
       })
       cur += numRows * roomRowH + F * 1.2
 
+      // Misc items — flat-dollar lines not tied to sq ft
+      if (miscItems.length > 0) {
+        ctx.textAlign = 'left'
+        ctx.font = `bold ${F * 1.0}px Arial`
+        ctx.fillStyle = '#222'
+        ctx.fillText('Misc Items', pad, cur)
+        cur += F * 1.3
+        miscItems.forEach(item => {
+          const label = item.label?.trim() || 'Item'
+          const amt = parseFloat(item.amount) || 0
+          ctx.font = `${F * 0.85}px Arial`
+          ctx.fillStyle = '#444'
+          const amtText = `$${amt.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`
+          ctx.font = `bold ${F * 0.85}px Arial`
+          const amtW = ctx.measureText(amtText).width
+          ctx.font = `${F * 0.85}px Arial`
+          ctx.fillText(fitText(label, `${F*0.85}px Arial`, cappedImgW - pad*2 - amtW - 20), pad, cur)
+          ctx.font = `bold ${F * 0.85}px Arial`
+          ctx.fillStyle = '#4caf50'
+          ctx.textAlign = 'right'
+          ctx.fillText(amtText, cappedImgW - pad, cur)
+          ctx.textAlign = 'left'
+          cur += F * 1.3
+        })
+        cur += F * 0.5
+      }
+
       // Footer — always at bottom of canvas
       ctx.font = `${F * 0.75}px Arial`
       ctx.fillStyle = '#555'
@@ -2215,11 +2244,33 @@ const ResultsScreen = React.forwardRef(function ResultsScreen({ image, rooms, jo
           )
         })}
 
+        {/* Misc Items — flat-dollar line items not tied to sq ft */}
+        <div style={{fontSize:13,fontWeight:700,color:'#222',margin:'12px 0 8px'}}>Misc Items</div>
+        {miscItems.map(item => (
+          <div key={item.id} style={{background:'#fff',border:'1px solid #eee',borderRadius:8,padding:'10px 12px',marginBottom:8,display:'flex',alignItems:'center',gap:8}}>
+            <input type="text" placeholder="Description (e.g. Trip charge)" value={item.label}
+              onChange={e=>setMiscItems(p=>p.map(i=>i.id===item.id?{...i,label:e.target.value}:i))}
+              style={{flex:1,minWidth:0,padding:'6px 9px',fontSize:12,border:'1px solid #ddd',borderRadius:6,outline:'none',boxSizing:'border-box'}} />
+            <div style={{display:'flex',alignItems:'center',border:'1px solid #ddd',borderRadius:6,overflow:'hidden',flexShrink:0}}>
+              <span style={{padding:'6px 7px',background:'#f5f5f5',color:'#666',fontSize:12,borderRight:'1px solid #ddd'}}>$</span>
+              <input type="text" inputMode="decimal" placeholder="0.00" value={item.amount}
+                onChange={e=>setMiscItems(p=>p.map(i=>i.id===item.id?{...i,amount:e.target.value}:i))}
+                style={{width:56,padding:'6px 7px',fontSize:12,border:'none',outline:'none'}} />
+            </div>
+            <button onClick={()=>setMiscItems(p=>p.filter(i=>i.id!==item.id))} title="Delete item"
+              style={{width:26,height:26,borderRadius:6,background:'#fdecea',border:'1px solid #f5c6c6',color:'#c62828',fontSize:13,cursor:'pointer',flexShrink:0}}>🗑️</button>
+          </div>
+        ))}
+        <button onClick={()=>setMiscItems(p=>[...p, { id: Date.now()+Math.random(), label:'', amount:'' }])}
+          style={{width:'100%',padding:9,background:'transparent',border:`1.5px dashed ${ORANGE}`,color:ORANGE,borderRadius:7,fontSize:12,fontWeight:600,cursor:'pointer',marginBottom:16}}>
+          + Add Item
+        </button>
+
         {/* Totals */}
         <div style={{background:DARK,borderRadius:10,padding:'14px 16px',display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:4}}>
           <div>
             <div style={{color:'#aaa',fontSize:16,fontWeight:700}}>Total coating area</div>
-            <div style={{color:'#888',fontSize:13,marginTop:2}}>Perimeter: {totalPerim} ft</div>
+            <div style={{color:'#888',fontSize:13,marginTop:2}}>Perimeter: {totalPerim} ft{miscItems.length>0 ? ` · +${miscItems.length} misc item${miscItems.length!==1?'s':''}` : ''}</div>
             {hasAnyPrice && (
               <div style={{color:'#4caf50',fontSize:18,fontWeight:800,marginTop:4}}>
                 Job Total: ${grandTotal.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}
@@ -2265,6 +2316,7 @@ export default function App() {
   const [fracPerFt,   setFracPerFt]   = useState(null)
   const [aspectRatio, setAspectRatio] = useState(1.4)
   const [labelSizeInches, setLabelSizeInches] = useState(DEFAULT_LABEL_SIZE_INCHES) // user-adjustable wall-label size; name/sqft scale proportionally
+  const [miscItems, setMiscItems] = useState([]) // flat-dollar line items not tied to sq ft — [{id, label, amount}]
   const [rooms,       setRooms]       = useState([])
   const [jobName,     setJobName]     = useState('')
   const [error,       setError]       = useState('')
@@ -2283,7 +2335,7 @@ export default function App() {
     // silently letting it go stale.
     if (firstRoomsRender.current) { firstRoomsRender.current = false; return }
     setReportSaved(false)
-  }, [rooms, jobName])
+  }, [rooms, jobName, miscItems])
 
   const handleFile = useCallback((payload) => {
     if (payload.loading) { setConverting(true); setError(''); setConvertProgress(payload.progress || null); return }
@@ -2332,7 +2384,7 @@ export default function App() {
 
   function performReset() {
     setScreen('upload'); setImage(null); setFracPerFt(null); setRooms([]); setError(''); setConverting(false)
-    setJobName(''); setPdfPicker(null); setLabelSizeInches(DEFAULT_LABEL_SIZE_INCHES)
+    setJobName(''); setPdfPicker(null); setLabelSizeInches(DEFAULT_LABEL_SIZE_INCHES); setMiscItems([])
     setReportSaved(false); setHasSavedOnce(false); setUnsavedWarning(null)
   }
 
@@ -2355,7 +2407,7 @@ export default function App() {
       {screen==='straighten' && <StraightenScreen image={image} jobName={jobName} onDone={handleStraightenDone} onSkip={()=>setScreen('calibrate')} />}
       {screen==='calibrate' && <CalibrateScreen image={image} jobName={jobName} onDone={handleCalibrateDone} />}
       {screen==='draw'      && <DrawScreen      ref={drawScreenRef} image={image} fracPerFt={fracPerFt} aspectRatio={aspectRatio} rooms={rooms} jobName={jobName} onAddRoom={r=>setRooms(p=>[...p,r])} onRemoveRoom={id=>setRooms(p=>p.filter(r=>r.id!==id))} onUpdateRoom={(id,patch)=>setRooms(p=>p.map(r=>r.id===id?{...r,...patch}:r))} onFinish={()=>setScreen('results')} labelSizeInches={labelSizeInches} setLabelSizeInches={setLabelSizeInches} />}
-      {screen==='results'   && <ResultsScreen   ref={resultsScreenRef} image={image} rooms={rooms} jobName={jobName} setJobName={setJobName} fracPerFt={fracPerFt} aspectRatio={aspectRatio} labelSizeInches={labelSizeInches} onReset={reset} onEdit={()=>setScreen('draw')} onSaved={()=>{ setReportSaved(true); setHasSavedOnce(true) }} />}
+      {screen==='results'   && <ResultsScreen   ref={resultsScreenRef} image={image} rooms={rooms} jobName={jobName} setJobName={setJobName} fracPerFt={fracPerFt} aspectRatio={aspectRatio} labelSizeInches={labelSizeInches} miscItems={miscItems} setMiscItems={setMiscItems} onReset={reset} onEdit={()=>setScreen('draw')} onSaved={()=>{ setReportSaved(true); setHasSavedOnce(true) }} />}
       {unsavedWarning && (
         <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.45)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:100,padding:20}}
           onClick={()=>setUnsavedWarning(null)}>
