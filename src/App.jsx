@@ -1776,16 +1776,25 @@ const DrawScreen = React.forwardRef(function DrawScreen({ image, fracPerFt, aspe
 })
 
 // ── Results Screen ────────────────────────────────────────────
-const ResultsScreen = React.forwardRef(function ResultsScreen({ image, rooms, jobName, setJobName, fracPerFt, aspectRatio, labelSizeInches, miscItems, setMiscItems, onReset, onEdit, onSaved }, ref) {
+const ResultsScreen = React.forwardRef(function ResultsScreen({ image, rooms, jobName, setJobName, fracPerFt, aspectRatio, labelSizeInches, miscItems, setMiscItems, reportSaved, onDirty, onReset, onEdit, onSaved }, ref) {
   const [editingJobName, setEditingJobName] = useState(false)
   const [jobNameDraft,   setJobNameDraft]   = useState(jobName)
   React.useImperativeHandle(ref, () => ({ triggerSave: () => handleSave() }))
   const totalSqft  = Math.round(rooms.reduce((s,r)=>s+(r.sqft||0),0))
   const totalPerim = Math.round(rooms.reduce((s,r)=>s+(r.perim||0),0))
   const [saving,     setSaving]     = useState(false)
-  const [saved,      setSaved]      = useState(false)
   const [roomPrices, setRoomPrices] = useState({})  // { room.id: pricePerSqft string }
   const [roomCoatings, setRoomCoatings] = useState({}) // { room.id: coating name string }
+  // Price/coating live only here, not in App's rooms/jobName/miscItems — so
+  // they need their own watcher to tell the parent this job is now dirty
+  // (this is what makes the "Report Saved" button and the New Job warning
+  // correctly go stale again after changing a price, not just after
+  // editing a room).
+  const firstDirtyCheck = useRef(true)
+  useEffect(() => {
+    if (firstDirtyCheck.current) { firstDirtyCheck.current = false; return }
+    if (onDirty) onDirty()
+  }, [roomPrices, roomCoatings])
   const getRoomTotal = (room) => {
     const p = parseFloat(roomPrices[room.id] || '')
     return (!isNaN(p) && p > 0) ? p * (room.sqft || 0) : 0
@@ -1863,7 +1872,7 @@ const ResultsScreen = React.forwardRef(function ResultsScreen({ image, rooms, jo
         F_est * 2.0 +                                                    // top pad
         F_est * 2.0 +                                                    // job name
         F_est * 2.0 +                                                    // totals
-        (hasAnyPrice ? F_est * 2.5 : 0) +                                 // price line
+        (hasAnyPrice ? F_est * 3.2 : 0) +                                 // price line + divider (now at the bottom)
         F_est * 1.5 +                                                    // divider
         Math.ceil(rooms.length / Math.min(2, Math.max(rooms.length,1))) * F_est * 5.6 +           // room rows (1 col if only 1 room, else 2)
         (miscItems.length > 0 ? F_est * 1.6 + miscItems.length * F_est * 1.5 : 0) +               // misc items header + one line each
@@ -1992,22 +2001,6 @@ const ResultsScreen = React.forwardRef(function ResultsScreen({ image, rooms, jo
       ctx.fillText(totalText, pad, cur)
       cur += F * 0.4
 
-      // Price line
-      if (hasAnyPrice && grandTotal > 0) {
-        cur += F * 1.4
-        ctx.font = `bold ${F * 1.3}px Arial`
-        ctx.fillStyle = '#4caf50'
-        const priceText = `Job Total: $${grandTotal.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`
-        let pFont = F * 1.3
-        ctx.font = `bold ${pFont}px Arial`
-        while (ctx.measureText(priceText).width > cappedImgW - pad * 2 && pFont > F * 0.7) {
-          pFont -= 2
-          ctx.font = `bold ${pFont}px Arial`
-        }
-        ctx.fillText(priceText, pad, cur)
-        cur += F * 0.4
-      }
-
       // Divider
       cur += F * 0.8
       ctx.fillStyle = '#333'
@@ -2076,18 +2069,17 @@ const ResultsScreen = React.forwardRef(function ResultsScreen({ image, rooms, jo
       if (miscItems.length > 0) {
         ctx.textAlign = 'left'
         ctx.font = `bold ${F * 1.0}px Arial`
-        ctx.fillStyle = '#222'
+        ctx.fillStyle = '#ccc'
         ctx.fillText('Misc Items', pad, cur)
         cur += F * 1.3
         miscItems.forEach(item => {
           const label = item.label?.trim() || 'Item'
           const amt = parseFloat(item.amount) || 0
-          ctx.font = `${F * 0.85}px Arial`
-          ctx.fillStyle = '#444'
           const amtText = `$${amt.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`
           ctx.font = `bold ${F * 0.85}px Arial`
           const amtW = ctx.measureText(amtText).width
           ctx.font = `${F * 0.85}px Arial`
+          ctx.fillStyle = '#eee'
           ctx.fillText(fitText(label, `${F*0.85}px Arial`, cappedImgW - pad*2 - amtW - 20), pad, cur)
           ctx.font = `bold ${F * 0.85}px Arial`
           ctx.fillStyle = '#4caf50'
@@ -2099,6 +2091,24 @@ const ResultsScreen = React.forwardRef(function ResultsScreen({ image, rooms, jo
         cur += F * 0.5
       }
 
+      // Job Total — last, as the sum of everything above it (rooms + misc)
+      if (hasAnyPrice && grandTotal > 0) {
+        cur += F * 0.6
+        ctx.fillStyle = '#333'
+        ctx.fillRect(pad, cur, cappedImgW - pad * 2, 1)
+        cur += F * 1.4
+        const priceText = `Job Total: $${grandTotal.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`
+        let pFont = F * 1.3
+        ctx.font = `bold ${pFont}px Arial`
+        while (ctx.measureText(priceText).width > cappedImgW - pad * 2 && pFont > F * 0.7) {
+          pFont -= 2
+          ctx.font = `bold ${pFont}px Arial`
+        }
+        ctx.fillStyle = '#4caf50'
+        ctx.fillText(priceText, pad, cur)
+        cur += F * 0.4
+      }
+
       // Footer — always at bottom of canvas
       ctx.font = `${F * 0.75}px Arial`
       ctx.fillStyle = '#555'
@@ -2106,7 +2116,6 @@ const ResultsScreen = React.forwardRef(function ResultsScreen({ image, rooms, jo
       ctx.fillText('TopCoat Tech · Estimator', cappedImgW / 2, totalH - F * 0.5)
 
       await saveToPhotos(canvas, jobName || 'TopCoat-Blueprint')
-      setSaved(true)
       if (onSaved) onSaved()
     } catch (err) {
       console.error('Save error:', err)
@@ -2287,8 +2296,8 @@ const ResultsScreen = React.forwardRef(function ResultsScreen({ image, rooms, jo
 
       {/* Save button */}
       <button onClick={handleSave} disabled={saving}
-        style={{width:'100%',padding:'15px',background:saved?'#2e7d32':saving?'#888':ORANGE,color:'#fff',border:'none',borderRadius:10,fontSize:15,fontWeight:700,cursor:saving?'not-allowed':'pointer',marginBottom:10}}>
-        {saved ? '✓ Report Saved!' : saving ? 'Building Report…' : '📸 Save Report'}
+        style={{width:'100%',padding:'15px',background:reportSaved?'#2e7d32':saving?'#888':ORANGE,color:'#fff',border:'none',borderRadius:10,fontSize:15,fontWeight:700,cursor:saving?'not-allowed':'pointer',marginBottom:10}}>
+        {reportSaved ? '✓ Report Saved!' : saving ? 'Building Report…' : '📸 Save Report'}
       </button>
       <button onClick={onEdit} style={{width:'100%',padding:'12px',background:'transparent',color:ORANGE,border:`2px solid ${ORANGE}`,borderRadius:10,fontSize:14,fontWeight:700,cursor:'pointer',marginBottom:10}}>← Edit Rooms</button>
       <button onClick={onReset} style={{width:'100%',padding:'12px',background:'transparent',border:'1px solid #ddd',borderRadius:8,fontSize:13,color:'#888',cursor:'pointer'}}>↺ New Job</button>
@@ -2407,7 +2416,7 @@ export default function App() {
       {screen==='straighten' && <StraightenScreen image={image} jobName={jobName} onDone={handleStraightenDone} onSkip={()=>setScreen('calibrate')} />}
       {screen==='calibrate' && <CalibrateScreen image={image} jobName={jobName} onDone={handleCalibrateDone} />}
       {screen==='draw'      && <DrawScreen      ref={drawScreenRef} image={image} fracPerFt={fracPerFt} aspectRatio={aspectRatio} rooms={rooms} jobName={jobName} onAddRoom={r=>setRooms(p=>[...p,r])} onRemoveRoom={id=>setRooms(p=>p.filter(r=>r.id!==id))} onUpdateRoom={(id,patch)=>setRooms(p=>p.map(r=>r.id===id?{...r,...patch}:r))} onFinish={()=>setScreen('results')} labelSizeInches={labelSizeInches} setLabelSizeInches={setLabelSizeInches} />}
-      {screen==='results'   && <ResultsScreen   ref={resultsScreenRef} image={image} rooms={rooms} jobName={jobName} setJobName={setJobName} fracPerFt={fracPerFt} aspectRatio={aspectRatio} labelSizeInches={labelSizeInches} miscItems={miscItems} setMiscItems={setMiscItems} onReset={reset} onEdit={()=>setScreen('draw')} onSaved={()=>{ setReportSaved(true); setHasSavedOnce(true) }} />}
+      {screen==='results'   && <ResultsScreen   ref={resultsScreenRef} image={image} rooms={rooms} jobName={jobName} setJobName={setJobName} fracPerFt={fracPerFt} aspectRatio={aspectRatio} labelSizeInches={labelSizeInches} miscItems={miscItems} setMiscItems={setMiscItems} reportSaved={reportSaved} onDirty={()=>setReportSaved(false)} onReset={reset} onEdit={()=>setScreen('draw')} onSaved={()=>{ setReportSaved(true); setHasSavedOnce(true) }} />}
       {unsavedWarning && (
         <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.45)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:100,padding:20}}
           onClick={()=>setUnsavedWarning(null)}>
