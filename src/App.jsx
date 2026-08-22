@@ -1214,7 +1214,7 @@ const DrawScreen = React.forwardRef(function DrawScreen({ image, fracPerFt, aspe
     const p = pts[idx]
     const baseW = imgRef.current.clientWidth
     const baseH = imgRef.current.clientHeight
-    const targetZoom = Math.max(zoomLevel, 8)
+    const targetZoom = Math.max(zoomLevel, 10)
     blueprintCtrlRef.current.centerOn(p.x * baseW, p.y * baseH, targetZoom)
   }
 
