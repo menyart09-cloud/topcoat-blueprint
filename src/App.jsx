@@ -1866,8 +1866,12 @@ const ResultsScreen = React.forwardRef(function ResultsScreen({ image, rooms, jo
       const aspectRatio = cropHpx / cropWpx
       const cappedImgW = Math.min(cropWpx, maxW)
       const cappedImgH = Math.round(cappedImgW * aspectRatio)
-      // Calculate exact legend height — generous padding so nothing gets cut off
-      const F_est = Math.min(Math.max(Math.round(cappedImgW / 30), 16), 40)
+      // Calculate exact legend height — generous padding so nothing gets cut off.
+      // MUST use the exact same font-size formula as the actual drawing below
+      // (fSize/F) — a mismatch here is what caused the bottom of the report
+      // to get clipped: this reserves space based on one font size while the
+      // real text draws at a different, larger one.
+      const F_est = Math.min(Math.max(Math.round(cappedImgW / 28), 20), 60)
       const legendH = Math.round(
         F_est * 2.0 +                                                    // top pad
         F_est * 2.0 +                                                    // job name
@@ -1964,11 +1968,9 @@ const ResultsScreen = React.forwardRef(function ResultsScreen({ image, rooms, jo
       // ── Legend section ────────────────────────────────────────
       const ly = cappedImgH
       const pad = 20
-      // Font size proportional to image width — readable on any size blueprint
-      const fSize = Math.min(Math.max(Math.round(cappedImgW / 28), 20), 60)
 
       // ── Legend with cursor-based exact positioning ──────────
-      const F = fSize
+      const F = F_est // same value used to reserve height above — kept as one variable so drawing can never outgrow what was reserved for it
       let cur = ly
 
       // Orange divider
