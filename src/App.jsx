@@ -500,7 +500,7 @@ function Header({ screen, onBack, onReset }) {
       )}
       <img src="/icon-512.png" alt="TopCoat" style={{ width: 28, height: 28, borderRadius: 6, flexShrink: 0, objectFit: 'cover' }} />
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ color: '#fff', fontWeight: 700, fontSize: 13, lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>TopCoat Tech Blueprint Analyzer</div>
+        <div style={{ color: '#fff', fontWeight: 700, fontSize: 13, lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>TopCoat Tech Estimator</div>
         <div style={{ color: '#888', fontSize: 10 }}>Draw room overlays · AI calculates sq footage</div>
       </div>
       {showReset && (
@@ -1776,9 +1776,10 @@ const DrawScreen = React.forwardRef(function DrawScreen({ image, fracPerFt, aspe
 })
 
 // ── Results Screen ────────────────────────────────────────────
-function ResultsScreen({ image, rooms, jobName, setJobName, fracPerFt, aspectRatio, labelSizeInches, onReset, onEdit }) {
+const ResultsScreen = React.forwardRef(function ResultsScreen({ image, rooms, jobName, setJobName, fracPerFt, aspectRatio, labelSizeInches, onReset, onEdit, onSaved }, ref) {
   const [editingJobName, setEditingJobName] = useState(false)
   const [jobNameDraft,   setJobNameDraft]   = useState(jobName)
+  React.useImperativeHandle(ref, () => ({ triggerSave: () => handleSave() }))
   const totalSqft  = Math.round(rooms.reduce((s,r)=>s+(r.sqft||0),0))
   const totalPerim = Math.round(rooms.reduce((s,r)=>s+(r.perim||0),0))
   const [saving,     setSaving]     = useState(false)
@@ -1970,7 +1971,7 @@ function ResultsScreen({ image, rooms, jobName, setJobName, fracPerFt, aspectRat
       ctx.fillStyle = '#ffffff'
       let jFont = F * 1.6
       ctx.font = `bold ${jFont}px Arial`
-      const jText = jobName || 'TopCoat Tech Blueprint'
+      const jText = jobName || 'TopCoat Tech Estimator'
       while (ctx.measureText(jText).width > cappedImgW - pad * 2 && jFont > F * 0.8) {
         jFont -= 1; ctx.font = `bold ${jFont}px Arial`
       }
@@ -2073,10 +2074,11 @@ function ResultsScreen({ image, rooms, jobName, setJobName, fracPerFt, aspectRat
       ctx.font = `${F * 0.75}px Arial`
       ctx.fillStyle = '#555'
       ctx.textAlign = 'center'
-      ctx.fillText('TopCoat Tech · Blueprint Analyzer', cappedImgW / 2, totalH - F * 0.5)
+      ctx.fillText('TopCoat Tech · Estimator', cappedImgW / 2, totalH - F * 0.5)
 
       await saveToPhotos(canvas, jobName || 'TopCoat-Blueprint')
       setSaved(true)
+      if (onSaved) onSaved()
     } catch (err) {
       console.error('Save error:', err)
       // User cancelled share sheet — not a real error
@@ -2241,7 +2243,7 @@ function ResultsScreen({ image, rooms, jobName, setJobName, fracPerFt, aspectRat
       <button onClick={onReset} style={{width:'100%',padding:'12px',background:'transparent',border:'1px solid #ddd',borderRadius:8,fontSize:13,color:'#888',cursor:'pointer'}}>↺ New Job</button>
     </div>
   )
-}
+})
 
 // ── Main App ──────────────────────────────────────────────────
 class ErrorBoundary extends React.Component {
@@ -2270,6 +2272,18 @@ export default function App() {
   const [convertProgress, setConvertProgress] = useState(null) // {current,total} while generating PDF page previews
   const [pdfPicker,   setPdfPicker]   = useState(null) // {thumbnails, buffer, name, size} for multi-page PDFs
   const drawScreenRef = useRef() // lets handleBack/reset check for & safely cancel a mid-edit room
+  const resultsScreenRef = useRef() // lets New Job trigger a save remotely if the user chooses to
+  const [reportSaved, setReportSaved] = useState(false) // true once the CURRENT state of the job has been saved
+  const [hasSavedOnce, setHasSavedOnce] = useState(false) // true once ANY save has happened this job — picks which warning copy to show
+  const [unsavedWarning, setUnsavedWarning] = useState(null) // null | 'unsaved' — controls the New Job warning modal
+  const firstRoomsRender = useRef(true)
+  useEffect(() => {
+    // Any change to the rooms or job name after a save means that save no
+    // longer reflects what's on screen — re-arm the warning rather than
+    // silently letting it go stale.
+    if (firstRoomsRender.current) { firstRoomsRender.current = false; return }
+    setReportSaved(false)
+  }, [rooms, jobName])
 
   const handleFile = useCallback((payload) => {
     if (payload.loading) { setConverting(true); setError(''); setConvertProgress(payload.progress || null); return }
@@ -2316,13 +2330,19 @@ export default function App() {
     else if (screen === 'results') setScreen('draw')
   }
 
+  function performReset() {
+    setScreen('upload'); setImage(null); setFracPerFt(null); setRooms([]); setError(''); setConverting(false)
+    setJobName(''); setPdfPicker(null); setLabelSizeInches(DEFAULT_LABEL_SIZE_INCHES)
+    setReportSaved(false); setHasSavedOnce(false); setUnsavedWarning(null)
+  }
+
   function reset() {
     if (screen === 'draw' && drawScreenRef.current?.hasActiveRoomEdit()) {
       if (!window.confirm("You're mid-edit on a room. Start a new job anyway? Any un-saved changes will be discarded.")) return
       drawScreenRef.current.cancelActiveRoomEdit()
     }
-    setScreen('upload'); setImage(null); setFracPerFt(null); setRooms([]); setError(''); setConverting(false)
-    setJobName(''); setPdfPicker(null); setLabelSizeInches(DEFAULT_LABEL_SIZE_INCHES)
+    if (rooms.length > 0 && !reportSaved) { setUnsavedWarning('unsaved'); return }
+    performReset()
   }
 
   return (
@@ -2335,8 +2355,33 @@ export default function App() {
       {screen==='straighten' && <StraightenScreen image={image} jobName={jobName} onDone={handleStraightenDone} onSkip={()=>setScreen('calibrate')} />}
       {screen==='calibrate' && <CalibrateScreen image={image} jobName={jobName} onDone={handleCalibrateDone} />}
       {screen==='draw'      && <DrawScreen      ref={drawScreenRef} image={image} fracPerFt={fracPerFt} aspectRatio={aspectRatio} rooms={rooms} jobName={jobName} onAddRoom={r=>setRooms(p=>[...p,r])} onRemoveRoom={id=>setRooms(p=>p.filter(r=>r.id!==id))} onUpdateRoom={(id,patch)=>setRooms(p=>p.map(r=>r.id===id?{...r,...patch}:r))} onFinish={()=>setScreen('results')} labelSizeInches={labelSizeInches} setLabelSizeInches={setLabelSizeInches} />}
-      {screen==='results'   && <ResultsScreen   image={image} rooms={rooms} jobName={jobName} setJobName={setJobName} fracPerFt={fracPerFt} aspectRatio={aspectRatio} labelSizeInches={labelSizeInches} onReset={reset} onEdit={()=>setScreen('draw')} />}
-      <div style={{textAlign:'center',padding:'12px',color:'#bbb',fontSize:11}}>TopCoat Tech · Blueprint Analyzer</div>
+      {screen==='results'   && <ResultsScreen   ref={resultsScreenRef} image={image} rooms={rooms} jobName={jobName} setJobName={setJobName} fracPerFt={fracPerFt} aspectRatio={aspectRatio} labelSizeInches={labelSizeInches} onReset={reset} onEdit={()=>setScreen('draw')} onSaved={()=>{ setReportSaved(true); setHasSavedOnce(true) }} />}
+      {unsavedWarning && (
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.45)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:100,padding:20}}
+          onClick={()=>setUnsavedWarning(null)}>
+          <div style={{background:'#fff',borderRadius:14,padding:20,width:'100%',maxWidth:320}} onClick={e=>e.stopPropagation()}>
+            <div style={{width:40,height:40,borderRadius:'50%',background:'#fff3e0',display:'flex',alignItems:'center',justifyContent:'center',marginBottom:12,fontSize:18}}>⚠️</div>
+            <div style={{fontSize:15,fontWeight:700,color:'#222',marginBottom:6}}>Unsaved report</div>
+            <div style={{fontSize:13,color:'#888',marginBottom:18,lineHeight:1.5}}>
+              {hasSavedOnce
+                ? "You've made changes since you last saved this report. Starting a new job will discard those changes."
+                : "This job's report hasn't been saved yet. Starting a new job will discard it."}
+            </div>
+            <button onClick={()=>{ setUnsavedWarning(null); if (screen==='results') { resultsScreenRef.current?.triggerSave() } else { setScreen('results') } }}
+              style={{width:'100%',padding:11,background:ORANGE,color:'#fff',border:'none',borderRadius:8,fontSize:14,fontWeight:700,cursor:'pointer',marginBottom:8}}>
+              Save Report First
+            </button>
+            <button onClick={performReset}
+              style={{width:'100%',padding:11,background:'transparent',border:'1.5px solid #f5c6c6',color:'#c62828',borderRadius:8,fontSize:14,fontWeight:700,cursor:'pointer',marginBottom:8}}>
+              Discard and Start New Job
+            </button>
+            <button onClick={()=>setUnsavedWarning(null)} style={{width:'100%',padding:11,background:'transparent',border:'none',color:'#888',fontSize:14,cursor:'pointer'}}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+      <div style={{textAlign:'center',padding:'12px',color:'#bbb',fontSize:11}}>TopCoat Tech · Estimator</div>
     </div>
     </ErrorBoundary>
   )
