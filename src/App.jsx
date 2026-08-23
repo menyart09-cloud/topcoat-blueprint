@@ -86,6 +86,25 @@ function feetInchesLabel(ft) {
   return `${feet}'-${inches}"`
 }
 
+// ── Currency helpers, used by every dollar input in the app ──────
+// Parses a currency STRING that may already be comma-formatted (e.g. a
+// value the user has tabbed away from and had auto-formatted to
+// "1,000.00") back into a plain number for math. Plain parseFloat stops
+// at the first comma, silently truncating "1,000" down to 1 — this strips
+// commas first so formatted values never corrupt a total.
+function parseCurrency(str) {
+  if (str == null) return NaN
+  return parseFloat(String(str).replace(/,/g, ''))
+}
+// Formats a currency input's value on blur — pads to two decimals and
+// adds thousands separators (10 -> 10.00, 1000 -> 1,000.00). Leaves
+// non-numeric/empty input alone rather than forcing a value in.
+function formatCurrencyOnBlur(value) {
+  const n = parseCurrency(value)
+  if (isNaN(n)) return value
+  return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
 // ── Nearest point on a line segment (for tap-to-insert-corner) ──
 function nearestPointOnSegment(px, py, ax, ay, bx, by) {
   const abx = bx-ax, aby = by-ay
@@ -145,6 +164,25 @@ function centroid(points) {
     x: points.reduce((s,p)=>s+p.x,0) / points.length,
     y: points.reduce((s,p)=>s+p.y,0) / points.length
   }
+}
+
+// ── Compute a CSS transform that zooms/centers the Results-screen
+// preview on a given room, so its doorways are visible while pricing
+// perimeter product. Returns identity (no zoom) when room is null.
+function getRoomZoomTransform(room, imgSize) {
+  if (!room || !imgSize.w || !imgSize.h) return { scale: 1, tx: 0, ty: 0 }
+  let minX=1, minY=1, maxX=0, maxY=0
+  room.points.forEach(p => {
+    if (p.x < minX) minX = p.x
+    if (p.y < minY) minY = p.y
+    if (p.x > maxX) maxX = p.x
+    if (p.y > maxY) maxY = p.y
+  })
+  const cx = (minX+maxX)/2, cy = (minY+maxY)/2
+  const bboxW = (maxX-minX) || 0.05, bboxH = (maxY-minY) || 0.05
+  const padding = 1.8 // room fills roughly the middle 55% of the frame, leaving context around it visible
+  const scale = Math.min(Math.min(1/(bboxW*padding), 1/(bboxH*padding)), 6)
+  return { scale: Math.max(scale, 1), tx: imgSize.w*(0.5-cx), ty: imgSize.h*(0.5-cy) }
 }
 
 // ── SVG points string ─────────────────────────────────────────
@@ -1803,6 +1841,7 @@ const DrawScreen = React.forwardRef(function DrawScreen({ image, fracPerFt, aspe
 // ── Results Screen ────────────────────────────────────────────
 const ResultsScreen = React.forwardRef(function ResultsScreen({ image, rooms, jobName, setJobName, fracPerFt, aspectRatio, labelSizeInches, miscItems, setMiscItems, reportSaved, onDirty, onReset, onEdit, onSaved }, ref) {
   const [editingJobName, setEditingJobName] = useState(false)
+  const [pricingRoomId, setPricingRoomId] = useState(null) // which room's pricing card is expanded, if any
   const [jobNameDraft,   setJobNameDraft]   = useState(jobName)
   React.useImperativeHandle(ref, () => ({ triggerSave: () => handleSave() }))
   const totalSqft  = Math.round(rooms.reduce((s,r)=>s+(r.sqft||0),0))
@@ -1810,6 +1849,9 @@ const ResultsScreen = React.forwardRef(function ResultsScreen({ image, rooms, jo
   const [saving,     setSaving]     = useState(false)
   const [roomPrices, setRoomPrices] = useState({})  // { room.id: pricePerSqft string }
   const [roomCoatings, setRoomCoatings] = useState({}) // { room.id: coating name string }
+  const [roomLfPrices, setRoomLfPrices] = useState({}) // { room.id: pricePerLf string } — for perimeter products like cove base
+  const [roomDoorCounts, setRoomDoorCounts] = useState({}) // { room.id: number of doorways to exclude }
+  const [roomDoorWidths, setRoomDoorWidths] = useState({}) // { room.id: standard door width in ft, default 3 }
   // Price/coating live only here, not in App's rooms/jobName/miscItems — so
   // they need their own watcher to tell the parent this job is now dirty
   // (this is what makes the "Report Saved" button and the New Job warning
@@ -1819,14 +1861,22 @@ const ResultsScreen = React.forwardRef(function ResultsScreen({ image, rooms, jo
   useEffect(() => {
     if (firstDirtyCheck.current) { firstDirtyCheck.current = false; return }
     if (onDirty) onDirty()
-  }, [roomPrices, roomCoatings])
-  const getRoomTotal = (room) => {
-    const p = parseFloat(roomPrices[room.id] || '')
+  }, [roomPrices, roomCoatings, roomLfPrices, roomDoorCounts, roomDoorWidths])
+  const getDoorWidth = (room) => { const w = parseCurrency(roomDoorWidths[room.id]); return (!isNaN(w) && w >= 0) ? w : 3 }
+  const getDoorCount = (room) => { const c = parseInt(roomDoorCounts[room.id], 10); return (!isNaN(c) && c >= 0) ? c : 0 }
+  const getLfToPrice = (room) => Math.max((room.perim || 0) - getDoorCount(room) * getDoorWidth(room), 0)
+  const getRoomAreaTotal = (room) => {
+    const p = parseCurrency(roomPrices[room.id] || '')
     return (!isNaN(p) && p > 0) ? p * (room.sqft || 0) : 0
   }
-  const miscTotal = miscItems.reduce((s, i) => s + (parseFloat(i.amount) || 0), 0)
+  const getRoomLfTotal = (room) => {
+    const p = parseCurrency(roomLfPrices[room.id] || '')
+    return (!isNaN(p) && p > 0) ? p * getLfToPrice(room) : 0
+  }
+  const getRoomTotal = (room) => getRoomAreaTotal(room) + getRoomLfTotal(room)
+  const miscTotal = miscItems.reduce((s, i) => s + (parseCurrency(i.amount) || 0), 0)
   const grandTotal = rooms.reduce((s, r) => s + getRoomTotal(r), 0) + miscTotal
-  const hasAnyPrice = rooms.some(r => parseFloat(roomPrices[r.id] || '') > 0) || miscTotal > 0
+  const hasAnyPrice = rooms.some(r => getRoomTotal(r) > 0) || miscTotal > 0
   const blueprintRef = useRef()
   const [imgSize, setImgSize] = useState({ w: 300, h: 400 })
 
@@ -2080,8 +2130,7 @@ const ResultsScreen = React.forwardRef(function ResultsScreen({ image, rooms, jo
           ctx.fillText(fitText(coating, subFont, avail), rx + swatchSize + 10, ry + swatchSize * 2.05)
         }
 
-        const rp = parseFloat(roomPrices[room.id] || '')
-        const rt = (!isNaN(rp) && rp > 0) ? rp * (room.sqft||0) : 0
+        const rt = getRoomTotal(room)
         if (rt > 0) {
           const priceFont = `bold ${F * 0.9}px Arial`
           ctx.fillStyle = '#4caf50'
@@ -2101,7 +2150,7 @@ const ResultsScreen = React.forwardRef(function ResultsScreen({ image, rooms, jo
         cur += F * 1.3
         miscItems.forEach(item => {
           const label = item.label?.trim() || 'Item'
-          const amt = parseFloat(item.amount) || 0
+          const amt = parseCurrency(item.amount) || 0
           const amtText = `$${amt.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`
           ctx.font = `bold ${F * 0.85}px Arial`
           const amtW = ctx.measureText(amtText).width
@@ -2181,8 +2230,12 @@ const ResultsScreen = React.forwardRef(function ResultsScreen({ image, rooms, jo
       </div>
 
       {/* Blueprint with overlays */}
-      <div style={{background:'#111',borderRadius:12,padding:8,marginBottom:16,position:'relative'}}>
-        <div style={{position:'relative'}}>
+      <div style={{background:'#111',borderRadius:12,padding:8,marginBottom:16,position:'relative',overflow:'hidden'}}>
+        {(() => {
+          const zoomRoom = pricingRoomId ? rooms.find(r => r.id === pricingRoomId) : null
+          const zt = getRoomZoomTransform(zoomRoom, imgSize)
+          return (
+        <div style={{position:'relative',transform:`scale(${zt.scale}) translate(${zt.tx}px, ${zt.ty}px)`,transformOrigin:'center center',transition:'transform 0.4s ease'}}>
           <img ref={blueprintRef} src={image.src} alt="Blueprint"
             style={{width:'100%',display:'block',borderRadius:8}}
             onLoad={()=>setImgSize({w:blueprintRef.current.clientWidth,h:blueprintRef.current.clientHeight})} />
@@ -2226,6 +2279,8 @@ const ResultsScreen = React.forwardRef(function ResultsScreen({ image, rooms, jo
             })}
           </svg>
         </div>
+          )
+        })()}
       </div>
 
       {/* Room legend */}
@@ -2233,15 +2288,48 @@ const ResultsScreen = React.forwardRef(function ResultsScreen({ image, rooms, jo
         <div style={{fontWeight:700,fontSize:14,color:'#333',marginBottom:12}}>Room Breakdown</div>
         {rooms.map(room => {
           const rPrice = roomPrices[room.id] || ''
-          const rTotal = getRoomTotal(room)
+          const rLfPrice = roomLfPrices[room.id] || ''
+          const areaTotal = getRoomAreaTotal(room)
+          const lfTotal = getRoomLfTotal(room)
+          const rTotal = areaTotal + lfTotal
           const rCoating = roomCoatings[room.id] || ''
           const isCustomCoating = rCoating && !COATING_TYPES.includes(rCoating)
+          const isExpanded = pricingRoomId === room.id
+          const doorCount = getDoorCount(room)
+          const doorWidth = getDoorWidth(room)
+          const lfToPrice = getLfToPrice(room)
+
+          if (!isExpanded) {
+            // ── Collapsed row — tap to expand and price this room ──
+            return (
+              <div key={room.id} onClick={()=>setPricingRoomId(room.id)}
+                style={{display:'flex',alignItems:'center',gap:10,padding:'10px 4px',marginBottom:4,borderBottom:'1px solid #f0f0f0',cursor:'pointer'}}>
+                <div style={{width:14,height:14,borderRadius:3,background:(room.color||ROOM_COLORS[0]).fill,border:`2px solid ${(room.color||ROOM_COLORS[0]).border}`,flexShrink:0}} />
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontWeight:600,fontSize:14,color:'#222'}}>{room.name}</div>
+                  <div style={{fontSize:12,color:'#888'}}>{room.sqft.toLocaleString()} sq ft · {room.perim} ft perimeter{rCoating ? ` · ${rCoating}` : ''}</div>
+                  <div style={{fontSize:12,marginTop:2}}>
+                    {areaTotal > 0
+                      ? <span style={{color:'#4caf50',fontWeight:700}}>Area: ${areaTotal.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+                      : <span style={{color:'#aaa',fontStyle:'italic'}}>Area not priced yet</span>}
+                    <span style={{color:'#ccc'}}> · </span>
+                    {lfTotal > 0
+                      ? <span style={{color:'#4caf50',fontWeight:700}}>Perimeter: ${lfTotal.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+                      : <span style={{color:'#aaa',fontStyle:'italic'}}>Perimeter not priced yet</span>}
+                  </div>
+                </div>
+                <span style={{fontSize:18,color:'#bbb',flexShrink:0}}>›</span>
+              </div>
+            )
+          }
+
+          // ── Expanded card — actively pricing this room ──
           return (
-            <div key={room.id} style={{paddingBottom:12,marginBottom:12,borderBottom:'1px solid #f0f0f0'}}>
+            <div key={room.id} style={{background:'#fafcfd',border:`2px solid ${ORANGE}`,borderRadius:10,padding:12,marginBottom:12}}>
               <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:6}}>
                 <div style={{width:14,height:14,borderRadius:3,background:(room.color||ROOM_COLORS[0]).fill,border:`2px solid ${(room.color||ROOM_COLORS[0]).border}`,flexShrink:0}} />
                 <div style={{flex:1}}>
-                  <div style={{fontWeight:600,fontSize:14,color:'#222'}}>{room.name}</div>
+                  <div style={{fontWeight:600,fontSize:14,color:'#222'}}>{room.name} <span style={{fontSize:10,color:ORANGE,fontWeight:700}}>PRICING</span></div>
                   <div style={{fontSize:12,color:'#888'}}>{room.sqft.toLocaleString()} sq ft · {room.perim} ft perimeter{rCoating ? ` · ${rCoating}` : ''}</div>
                 </div>
               </div>
@@ -2260,22 +2348,77 @@ const ResultsScreen = React.forwardRef(function ResultsScreen({ image, rooms, jo
                   onChange={e=>setRoomCoatings(p=>({...p,[room.id]:e.target.value}))}
                   style={{width:'100%',maxWidth:280,padding:'5px 9px',fontSize:12,border:'1px solid #ddd',borderRadius:6,outline:'none',boxSizing:'border-box'}} />
               </div>
-              {/* Per-room price input */}
-              <div style={{display:'flex',alignItems:'center',gap:8,marginLeft:24}}>
-                <span style={{fontSize:12,color:'#666',flexShrink:0}}>$/sf</span>
+              {/* Area pricing */}
+              <div style={{display:'flex',alignItems:'center',gap:8,marginLeft:24,marginBottom:10}}>
+                <span style={{fontSize:12,color:'#666',flexShrink:0,width:32}}>$/sf</span>
                 <div style={{display:'flex',alignItems:'center',border:'1px solid #ddd',borderRadius:6,overflow:'hidden',flex:1,maxWidth:140}}>
                   <span style={{padding:'5px 8px',background:'#f5f5f5',color:'#666',fontSize:13,borderRight:'1px solid #ddd'}}>$</span>
                   <input type="text" inputMode="decimal" placeholder="0.00"
                     value={rPrice}
                     onChange={e=>setRoomPrices(p=>({...p,[room.id]:e.target.value}))}
+                    onBlur={e=>setRoomPrices(p=>({...p,[room.id]:formatCurrencyOnBlur(e.target.value)}))}
                     style={{flex:1,padding:'5px 8px',fontSize:14,border:'none',outline:'none',width:80}} />
                 </div>
-                {rTotal > 0 && (
+                {areaTotal > 0 && (
                   <span style={{fontSize:13,fontWeight:700,color:'#4caf50'}}>
-                    = ${rTotal.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}
+                    = ${areaTotal.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}
                   </span>
                 )}
               </div>
+              {/* Perimeter pricing — e.g. cove base */}
+              <div style={{marginLeft:24,marginBottom:8}}>
+                <div style={{fontSize:11,fontWeight:700,color:'#555',textTransform:'uppercase',letterSpacing:'0.3px',marginBottom:6}}>
+                  Perimeter Pricing <span style={{fontWeight:400,color:'#999',textTransform:'none'}}>— e.g. cove base</span>
+                </div>
+                <div style={{background:'#f7f9fb',border:'1px solid #e3e8ec',borderRadius:8,padding:'8px 10px',marginBottom:8,maxWidth:320}}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
+                    <span style={{fontSize:12,color:'#555'}}>Doorways to exclude</span>
+                    <div style={{display:'flex',alignItems:'center',gap:6}}>
+                      <button onClick={()=>setRoomDoorCounts(p=>({...p,[room.id]:Math.max(0,doorCount-1)}))}
+                        style={{width:22,height:22,borderRadius:5,border:'1px solid #ccc',background:'#fff',color:'#555',fontSize:13,cursor:'pointer'}}>−</button>
+                      <span style={{fontSize:13,fontWeight:700,width:16,textAlign:'center'}}>{doorCount}</span>
+                      <button onClick={()=>setRoomDoorCounts(p=>({...p,[room.id]:doorCount+1}))}
+                        style={{width:22,height:22,borderRadius:5,border:'1px solid #ccc',background:'#fff',color:'#555',fontSize:13,cursor:'pointer'}}>+</button>
+                      <span style={{fontSize:11,color:'#999'}}>× </span>
+                      <input type="text" inputMode="decimal" value={roomDoorWidths[room.id] ?? '3'}
+                        onChange={e=>setRoomDoorWidths(p=>({...p,[room.id]:e.target.value}))}
+                        style={{width:32,padding:'2px 4px',fontSize:11,border:'1px solid #ddd',borderRadius:4,outline:'none',textAlign:'center'}} />
+                      <span style={{fontSize:11,color:'#999'}}>ft</span>
+                    </div>
+                  </div>
+                  <div style={{height:1,background:'#e3e8ec',margin:'6px 0'}}/>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                    <span style={{fontSize:12,fontWeight:700,color:'#333'}}>LF to price</span>
+                    <span style={{fontSize:13,fontWeight:800,color:ORANGE}}>{Math.round(lfToPrice)} ft</span>
+                  </div>
+                </div>
+                <div style={{display:'flex',alignItems:'center',gap:8}}>
+                  <span style={{fontSize:12,color:'#666',flexShrink:0,width:32}}>$/lf</span>
+                  <div style={{display:'flex',alignItems:'center',border:'1px solid #ddd',borderRadius:6,overflow:'hidden',flex:1,maxWidth:140}}>
+                    <span style={{padding:'5px 8px',background:'#f5f5f5',color:'#666',fontSize:13,borderRight:'1px solid #ddd'}}>$</span>
+                    <input type="text" inputMode="decimal" placeholder="0.00"
+                      value={rLfPrice}
+                      onChange={e=>setRoomLfPrices(p=>({...p,[room.id]:e.target.value}))}
+                      onBlur={e=>setRoomLfPrices(p=>({...p,[room.id]:formatCurrencyOnBlur(e.target.value)}))}
+                      style={{flex:1,padding:'5px 8px',fontSize:14,border:'none',outline:'none',width:80}} />
+                  </div>
+                  {lfTotal > 0 && (
+                    <span style={{fontSize:13,fontWeight:700,color:'#4caf50'}}>
+                      = ${lfTotal.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}
+                    </span>
+                  )}
+                </div>
+              </div>
+              {rTotal > 0 && (
+                <div style={{marginLeft:24,paddingTop:8,borderTop:'1px solid #eee',display:'flex',justifyContent:'space-between',alignItems:'baseline',marginBottom:10}}>
+                  <span style={{fontSize:12,fontWeight:700,color:'#555'}}>Room Total</span>
+                  <span style={{fontSize:15,fontWeight:800,color:'#4caf50'}}>${rTotal.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+                </div>
+              )}
+              <button onClick={()=>setPricingRoomId(null)}
+                style={{width:'100%',padding:11,background:ORANGE,color:'#fff',border:'none',borderRadius:8,fontSize:13,fontWeight:700,cursor:'pointer'}}>
+                ✓ Done Pricing This Room
+              </button>
             </div>
           )
         })}
@@ -2291,7 +2434,8 @@ const ResultsScreen = React.forwardRef(function ResultsScreen({ image, rooms, jo
               <span style={{padding:'6px 7px',background:'#f5f5f5',color:'#666',fontSize:12,borderRight:'1px solid #ddd'}}>$</span>
               <input type="text" inputMode="decimal" placeholder="0.00" value={item.amount}
                 onChange={e=>setMiscItems(p=>p.map(i=>i.id===item.id?{...i,amount:e.target.value}:i))}
-                style={{width:56,padding:'6px 7px',fontSize:12,border:'none',outline:'none'}} />
+                onBlur={e=>setMiscItems(p=>p.map(i=>i.id===item.id?{...i,amount:formatCurrencyOnBlur(e.target.value)}:i))}
+                style={{width:80,padding:'6px 7px',fontSize:12,border:'none',outline:'none'}} />
             </div>
             <button onClick={()=>setMiscItems(p=>p.filter(i=>i.id!==item.id))} title="Delete item"
               style={{width:26,height:26,borderRadius:6,background:'#fdecea',border:'1px solid #f5c6c6',color:'#c62828',fontSize:13,cursor:'pointer',flexShrink:0}}>🗑️</button>
