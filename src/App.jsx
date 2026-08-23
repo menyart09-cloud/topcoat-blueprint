@@ -180,8 +180,8 @@ function getRoomZoomTransform(room, imgSize) {
   })
   const cx = (minX+maxX)/2, cy = (minY+maxY)/2
   const bboxW = (maxX-minX) || 0.05, bboxH = (maxY-minY) || 0.05
-  const padding = 1.8 // room fills roughly the middle 55% of the frame, leaving context around it visible
-  const scale = Math.min(Math.min(1/(bboxW*padding), 1/(bboxH*padding)), 6)
+  const padding = 1.25 // room fills roughly the middle 80% of the frame — tight enough to clearly see doorways
+  const scale = Math.min(Math.min(1/(bboxW*padding), 1/(bboxH*padding)), 8)
   return { scale: Math.max(scale, 1), tx: imgSize.w*(0.5-cx), ty: imgSize.h*(0.5-cy) }
 }
 
