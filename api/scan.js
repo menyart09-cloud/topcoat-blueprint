@@ -4,15 +4,18 @@ export default async function handler(req, res) {
   if (!base64 || !mime) return res.status(400).json({ error: 'Missing image data' })
   if (base64.length > 6_000_000) return res.status(413).json({ error: 'Image too large.' })
 
-  // Mode: roomlist — scan blueprint and return all room names as array
+  // Mode: roomlist — scan blueprint and return room names WITH their
+  // approximate position on the image, so the client can locally re-rank
+  // by proximity for every room traced, not just the first one — without
+  // needing a fresh API call each time.
   if (mode === 'roomlist') {
-    const prompt = customPrompt || `Look at this blueprint floor plan. List every room name and space label printed on it. Respond ONLY with a JSON array: ["Room 1", "Room 2"]`
+    const prompt = customPrompt || `Look at this blueprint floor plan. Find every room name and space label printed on it, and estimate each one's position as a fraction of the image (0 to 1, top-left is 0,0). Respond ONLY with JSON: {"rooms":[{"name":"Room 1","x":0.3,"y":0.5}]}`
     try {
       const response = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
         body: JSON.stringify({
-          model: 'claude-sonnet-4-6', max_tokens: 600,
+          model: 'claude-sonnet-4-6', max_tokens: 800,
           messages: [{ role: 'user', content: [
             { type: 'image', source: { type: 'base64', media_type: mime, data: base64 } },
             { type: 'text', text: prompt }
@@ -20,19 +23,38 @@ export default async function handler(req, res) {
         })
       })
       const data = await response.json()
-      if (!response.ok) return res.status(200).json([])
+      if (!response.ok) return res.status(200).json({ rooms: [] })
       const raw = (data.content || []).map(b => b.text || '').join('').trim()
-      const match = raw.match(/\[[\s\S]*?\]/)
-      if (match) {
+      let rooms = []
+      const objMatch = raw.match(/\{[\s\S]*\}/)
+      if (objMatch) {
         try {
-          const arr = JSON.parse(match[0])
-          if (Array.isArray(arr)) {
-            return res.status(200).json([...new Set(arr.filter(n => typeof n === 'string' && n.trim()).map(n => n.trim()))])
-          }
-        } catch(e) {}
+          const obj = JSON.parse(objMatch[0])
+          if (Array.isArray(obj.rooms)) rooms = obj.rooms
+        } catch (e) {}
       }
-      return res.status(200).json([])
-    } catch { return res.status(200).json([]) }
+      if (rooms.length === 0) {
+        // Legacy fallback — a bare array of name strings, no position data
+        const arrMatch = raw.match(/\[[\s\S]*?\]/)
+        if (arrMatch) {
+          try {
+            const arr = JSON.parse(arrMatch[0])
+            if (Array.isArray(arr)) rooms = arr.map(n => (typeof n === 'string' ? { name: n } : n))
+          } catch (e) {}
+        }
+      }
+      const cleaned = rooms
+        .filter(r => r && typeof r.name === 'string' && r.name.trim())
+        .map(r => ({
+          name: r.name.trim(),
+          x: (typeof r.x === 'number' && r.x >= 0 && r.x <= 1) ? r.x : null,
+          y: (typeof r.y === 'number' && r.y >= 0 && r.y <= 1) ? r.y : null
+        }))
+      // De-dupe by name, keeping the first occurrence
+      const seen = new Set()
+      const deduped = cleaned.filter(r => { const k = r.name.toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true })
+      return res.status(200).json({ rooms: deduped })
+    } catch { return res.status(200).json({ rooms: [] }) }
   }
 
   // Mode: identify — name a single room
