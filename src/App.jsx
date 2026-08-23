@@ -339,17 +339,15 @@ Respond ONLY with this JSON (no markdown, no explanation):
 }
 
 // ── Scan blueprint for all room names ────────────────────────
-async function scanRoomNames(base64, mime, polygonCenter) {
-  const centerHint = polygonCenter
-    ? `\n\nIMPORTANT: A room was just traced at image position (${(polygonCenter.x*100).toFixed(1)}%, ${(polygonCenter.y*100).toFixed(1)}%). Put the room name at that location FIRST in the array.`
-    : ''
-
+async function scanRoomNames(base64, mime) {
   const prompt = `Look carefully at this blueprint floor plan image.
 Find and list ALL room names, space labels, and area names printed on it.
-Include every labeled space you can see.${centerHint}
+Include every labeled space you can see. For each one, also estimate its
+position in the image as a fraction of width/height (0 to 1, top-left is 0,0)
+— this is used later to match each name back to the right room.
 
-Respond ONLY with a JSON array of strings — room names only:
-["Most Likely Room", "Other Room", "Another Room"]`
+Respond ONLY with JSON in this exact shape, no markdown:
+{"rooms": [{"name": "Living Room", "x": 0.42, "y": 0.61}, {"name": "Kitchen", "x": 0.71, "y": 0.22}]}`
 
   try {
     const smallBase64 = await compressImage(base64, mime, 0.5)
@@ -359,9 +357,23 @@ Respond ONLY with a JSON array of strings — room names only:
     })
     const data = await res.json()
     if (!res.ok) return null
-    if (Array.isArray(data)) return data
+    if (data && Array.isArray(data.rooms)) return data.rooms
+    if (Array.isArray(data)) return data.map(n => (typeof n === 'string' ? { name: n, x: null, y: null } : n)) // legacy shape safety net
     return null
   } catch { return null }
+}
+
+// ── Reorder a cached {name,x,y} room-name list by proximity to a given
+// room's centroid — this is what makes the AI's best-guess-first behavior
+// work for EVERY room traced, not just the first, without a fresh API
+// call per room. Entries with no position data sort to the middle rather
+// than dominating either end.
+function reorderNamesByProximity(scannedRooms, targetCentroid) {
+  if (!scannedRooms || !targetCentroid) return (scannedRooms || []).map(r => r.name)
+  return [...scannedRooms]
+    .map(r => ({ ...r, _dist: (r.x == null || r.y == null) ? 0.5 : Math.hypot(r.x - targetCentroid.x, r.y - targetCentroid.y) }))
+    .sort((a, b) => a._dist - b._dist)
+    .map(r => r.name)
 }
 
 // Compress image to reduce file size for API calls
@@ -1384,11 +1396,12 @@ const DrawScreen = React.forwardRef(function DrawScreen({ image, fracPerFt, aspe
     const roomColor = editingRoomId ? (editingColor || color) : color
     setNaming({ sqft, perim, centroid: c, color: roomColor })
     setCustomName(editingRoomId ? editingName : '')
-    // Scan for room names if we haven't yet
+    // Scan for room names if we haven't yet — this fetches the FULL list
+    // with position data once per job; reordering by proximity for each
+    // individual room happens locally at render time, not here.
     if (scannedNames === null && !scanningNames) {
       setScanningNames(true)
-      const polyCenter = centroid(points)
-      const names = await scanRoomNames(image.base64, image.mime, polyCenter)
+      const names = await scanRoomNames(image.base64, image.mime)
       setScannedNames(names && names.length > 0 ? names : [])
       setScanningNames(false)
     }
@@ -1489,6 +1502,21 @@ const DrawScreen = React.forwardRef(function DrawScreen({ image, fracPerFt, aspe
       <ZoomableBlueprint ref={blueprintCtrlRef} onTap={e=>{if(!naming&&!identifying)handleTap(e)}} style={{flex:1,maxHeight:'none',minHeight:0}} onZoomChange={setZoomLevel}
         renderOverlay={toScreen => (
           <>
+            <svg style={{position:'absolute',inset:0,width:'100%',height:'100%',pointerEvents:'none',overflow:'visible'}}>
+              {rooms.map(room => (
+                <polygon key={`outline-${room.id}`}
+                  points={room.points.map(p => { const s = toScreen(p.x, p.y, imgSize.w||400, imgSize.h||300); return `${s.x},${s.y}` }).join(' ')}
+                  fill="none" stroke={(room.color||ROOM_COLORS[0]).border} strokeWidth={2}/>
+              ))}
+              {!naming && points.length>=2 && (
+                <polyline points={points.map(p => { const s = toScreen(p.x, p.y, imgSize.w||400, imgSize.h||300); return `${s.x},${s.y}` }).join(' ')}
+                  fill="none" stroke={color.border} strokeWidth={2} strokeDasharray="6,3"/>
+              )}
+              {naming && (
+                <polygon points={points.map(p => { const s = toScreen(p.x, p.y, imgSize.w||400, imgSize.h||300); return `${s.x},${s.y}` }).join(' ')}
+                  fill="none" stroke={color.border} strokeWidth={2}/>
+              )}
+            </svg>
             {cornerToolPoints && (
               <svg style={{position:'absolute',inset:0,width:'100%',height:'100%',pointerEvents:'none',overflow:'visible'}}>
                 <polygon points={cornerToolPoints.map(p => { const s = toScreen(p.x, p.y, imgSize.w||400, imgSize.h||300); return `${s.x},${s.y}` }).join(' ')}
@@ -1540,7 +1568,7 @@ const DrawScreen = React.forwardRef(function DrawScreen({ image, fracPerFt, aspe
               const wallFS = inchesToFontSize(labelInches.wall, fracPerFt, imgSize.w||400)
               return (
                 <g key={room.id}>
-                  <polygon points={toSvgPoints(room.points, imgSize.w, imgSize.h)} fill={(room.color||ROOM_COLORS[0]).fill} stroke={(room.color||ROOM_COLORS[0]).border} strokeWidth={2}/>
+                  <polygon points={toSvgPoints(room.points, imgSize.w, imgSize.h)} fill={(room.color||ROOM_COLORS[0]).fill} stroke="none"/>
                   {fracPerFt && room.points.map((a, i) => {
                     const b = room.points[(i+1) % room.points.length]
                     const lenFt = edgeLengthFt(a, b, fracPerFt, aspectRatio)
@@ -1569,11 +1597,8 @@ const DrawScreen = React.forwardRef(function DrawScreen({ image, fracPerFt, aspe
                 </g>
               )
             })}
-            {points.length>=2 && (
-              <polyline points={toSvgPoints(points, imgSize.w, imgSize.h)} fill="none" stroke={color.border} strokeWidth={2} strokeDasharray="6,3"/>
-            )}
             {naming && (
-              <polygon points={toSvgPoints(points, imgSize.w, imgSize.h)} fill={color.fill} stroke={color.border} strokeWidth={2}/>
+              <polygon points={toSvgPoints(points, imgSize.w, imgSize.h)} fill={color.fill} stroke="none"/>
             )}
             {cornerToolPoints && (
               <polygon points={toSvgPoints(cornerToolPoints, imgSize.w||400, imgSize.h||300)} fill={`${cornerToolColor[cornerTool]}2e`} stroke="none"/>
@@ -1594,7 +1619,7 @@ const DrawScreen = React.forwardRef(function DrawScreen({ image, fracPerFt, aspe
           {!scanningNames && (
             <div style={{display:'flex',flexWrap:'wrap',gap:6,marginBottom:10}}>
               {(scannedNames && scannedNames.length > 0
-                ? scannedNames
+                ? reorderNamesByProximity(scannedNames, naming.centroid)
                 : ['Garage','Living Room','Kitchen','Master Bedroom','Bedroom','Bathroom','Dining Room','Foyer','Hallway','Laundry','Office','Porch','Court','Utility','Pantry']
               ).map((n,idx)=>(
                 <button key={idx+'-'+n} onClick={()=>setCustomName(n)}
