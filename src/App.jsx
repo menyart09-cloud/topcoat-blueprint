@@ -591,6 +591,32 @@ async function saveToPhotos(canvasEl, jobName) {
   setTimeout(() => URL.revokeObjectURL(url), 5000)
 }
 
+// ── Auto-save an in-app camera capture to the phone's photo library ──
+// Unlike a report (which is generated fresh), a captured blueprint photo
+// is already just an image — this reuses saveToPhotos as-is (via a
+// throwaway canvas) rather than duplicating its already-tested
+// share/download logic. Only meant for photos taken WITH the app's
+// camera button, not files picked from an existing library — those
+// already live there. Failure here is non-critical: the photo is still
+// usable inside the app either way, so this never blocks the upload.
+async function savePhotoToLibrary(src, jobName) {
+  try {
+    const img = await new Promise((resolve, reject) => {
+      const i = new Image()
+      i.onload = () => resolve(i)
+      i.onerror = reject
+      i.src = src
+    })
+    const canvas = document.createElement('canvas')
+    canvas.width = img.naturalWidth
+    canvas.height = img.naturalHeight
+    canvas.getContext('2d').drawImage(img, 0, 0)
+    await saveToPhotos(canvas, jobName ? `${jobName}-Blueprint` : 'TopCoat-Blueprint')
+  } catch (e) {
+    console.error('Could not save captured photo to library:', e)
+  }
+}
+
 // ── Header ────────────────────────────────────────────────────
 function Header({ screen, onBack, onReset }) {
   const showBack  = screen !== 'upload'
@@ -618,7 +644,7 @@ function UploadScreen({ onFile, error, converting, convertProgress, jobName, set
   const uploadRef = useRef()
   const cameraRef = useRef()
 
-  async function handleFiles(files) {
+  async function handleFiles(files, fromCamera) {
     const file = files[0]
     if (!file) return
     if (file.name?.toLowerCase().endsWith('.pdf') || file.type === 'application/pdf') {
@@ -651,6 +677,12 @@ function UploadScreen({ onFile, error, converting, convertProgress, jobName, set
       // already-correctly-oriented image and never has to think about it.
       const { src, base64 } = await fixImageOrientation(rawSrc, rawBase64)
       onFile({ src, base64, mime, name: file.name, size: file.size })
+      // Photos taken WITH the app's camera only exist inside the app
+      // otherwise — back them up to the phone's own photo library too,
+      // using the already-corrected orientation. Files picked from an
+      // existing library already live there, so this only fires for
+      // fresh captures. Runs in the background; never blocks the upload.
+      if (fromCamera) savePhotoToLibrary(src, jobName)
     }
     reader.readAsDataURL(file)
   }
@@ -672,7 +704,7 @@ function UploadScreen({ onFile, error, converting, convertProgress, jobName, set
         </svg>
         Take a Photo
       </button>
-      <input ref={cameraRef} type="file" accept="image/*" capture="environment" style={{ display:'none' }} onChange={e => handleFiles(e.target.files)} />
+      <input ref={cameraRef} type="file" accept="image/*" capture="environment" style={{ display:'none' }} onChange={e => handleFiles(e.target.files, true)} />
 
       <div onClick={() => !converting && uploadRef.current?.click()}
         onDragOver={e=>{e.preventDefault();setDrag(true)}} onDragLeave={()=>setDrag(false)}
@@ -1028,7 +1060,7 @@ function PdfPageScreen({ thumbnails, buffer, pdfName, pdfSize, jobName, onImport
 // Optional. Tap two points along a line that should be level (e.g. a
 // wall edge), and the photo gets rotated so that line runs horizontal.
 // Skippable — most uploads (especially PDFs) won't need this.
-function StraightenScreen({ image, jobName, onDone, onSkip, onRotate }) {
+function StraightenScreen({ image, onDone, onSkip, onRotate }) {
   const [points, setPoints]   = useState([])
   const [zoomLevel, setZoomLevel] = useState(1)
   const [working, setWorking] = useState(false)
@@ -1085,12 +1117,11 @@ function StraightenScreen({ image, jobName, onDone, onSkip, onRotate }) {
 
   return (
     <div style={{ display:'flex', flexDirection:'column', height:'calc(100vh - 60px)' }}>
-      <div style={{background:'#3d2b56',padding:'9px 16px',display:'flex',alignItems:'center',gap:8}}>
-        {jobName && <span style={{color:'#c9a4ff',fontSize:11,fontWeight:700,flexShrink:0}}>{jobName}</span>}
-        <span style={{color:'#fff',fontWeight:600,fontSize:14,flex:1}}>🔄 STRAIGHTEN — tap 2 points on a line that should be level · Pinch to zoom</span>
+      <div style={{background:'#3d2b56',padding:'9px 10px 9px 16px',display:'flex',alignItems:'center',gap:10}}>
+        <span style={{color:'#fff',fontWeight:600,fontSize:14,flex:1,textAlign:'left'}}>🔄 STRAIGHTEN — tap 2 points on a line that should be level · Pinch to zoom</span>
         <button onClick={handleRotateClick} disabled={rotating} title="Rotate image 90°"
-          style={{flexShrink:0,width:34,height:34,borderRadius:8,background:'rgba(255,255,255,0.15)',border:'1px solid rgba(255,255,255,0.3)',color:'#fff',fontSize:16,cursor:rotating?'wait':'pointer'}}>
-          {rotating ? '…' : '↻'}
+          style={{flexShrink:0,padding:'7px 11px',borderRadius:7,background:'rgba(255,255,255,0.18)',border:'1px solid rgba(255,255,255,0.4)',color:'#fff',fontSize:12,fontWeight:700,cursor:rotating?'wait':'pointer',whiteSpace:'nowrap',display:'flex',alignItems:'center',gap:4}}>
+          {rotating ? '…' : '↻ Rotate'}
         </button>
       </div>
 
@@ -2651,6 +2682,12 @@ export default function App() {
       drawScreenRef.current.cancelActiveRoomEdit()
     }
     if (rooms.length > 0 && !reportSaved) { setUnsavedWarning('unsaved'); return }
+    // Covers the earlier stages (Straighten/Calibrate) — no rooms traced
+    // yet, so the checks above don't apply, but there's still a real
+    // uploaded blueprint (and maybe calibration) that would be lost.
+    if (rooms.length === 0 && image) {
+      if (!window.confirm("You'll lose your uploaded blueprint. Start a new job anyway?")) return
+    }
     performReset()
   }
 
@@ -2661,7 +2698,7 @@ export default function App() {
       <Header screen={screen} onBack={handleBack} onReset={reset} />
       {screen==='upload'    && <UploadScreen    onFile={handleFile} error={error} converting={converting} convertProgress={convertProgress} jobName={jobName} setJobName={setJobName} />}
       {screen==='pdfPages'  && pdfPicker && <PdfPageScreen thumbnails={pdfPicker.thumbnails} buffer={pdfPicker.buffer} pdfName={pdfPicker.name} pdfSize={pdfPicker.size} jobName={jobName} onImported={handlePdfPageImported} />}
-      {screen==='straighten' && <StraightenScreen image={image} jobName={jobName} onDone={handleStraightenDone} onSkip={()=>setScreen('calibrate')} onRotate={handleRotateImage} />}
+      {screen==='straighten' && <StraightenScreen image={image} onDone={handleStraightenDone} onSkip={()=>setScreen('calibrate')} onRotate={handleRotateImage} />}
       {screen==='calibrate' && <CalibrateScreen image={image} jobName={jobName} onDone={handleCalibrateDone} />}
       {screen==='draw'      && <DrawScreen      ref={drawScreenRef} image={image} fracPerFt={fracPerFt} aspectRatio={aspectRatio} rooms={rooms} jobName={jobName} onAddRoom={r=>setRooms(p=>[...p,r])} onRemoveRoom={id=>setRooms(p=>p.filter(r=>r.id!==id))} onUpdateRoom={(id,patch)=>setRooms(p=>p.map(r=>r.id===id?{...r,...patch}:r))} onFinish={()=>setScreen('results')} labelSizeInches={labelSizeInches} setLabelSizeInches={setLabelSizeInches} />}
       {screen==='results'   && <ResultsScreen   ref={resultsScreenRef} image={image} rooms={rooms} jobName={jobName} setJobName={setJobName} fracPerFt={fracPerFt} aspectRatio={aspectRatio} labelSizeInches={labelSizeInches} miscItems={miscItems} setMiscItems={setMiscItems} reportSaved={reportSaved} onDirty={()=>setReportSaved(false)} onReset={reset} onEdit={()=>setScreen('draw')} onSaved={()=>{ setReportSaved(true); setHasSavedOnce(true) }} />}
