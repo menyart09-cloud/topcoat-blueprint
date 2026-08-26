@@ -1605,7 +1605,14 @@ const DrawScreen = React.forwardRef(function DrawScreen({ image, fracPerFt, aspe
       if (editingRoomId) cancelEditRoom()
       else if (points.length > 0) { setPoints([]); setNaming(null); setCustomName('') }
       if (cornerTool) cancelCornerTool()
-    }
+    },
+    // For the header Back button specifically: while actively tracing,
+    // one tap of Back should undo just the last tapped corner (same as
+    // the in-screen Undo button) rather than leaving the whole screen —
+    // matches how "back" behaves everywhere else in the app (one step at
+    // a time), not a jump all the way out to Calibrate.
+    hasLocalUndo: () => points.length > 0 && !naming,
+    undoOneStep: () => { setPoints(p => p.slice(0, -1)) }
   }))
 
   const [imgSize, setImgSize] = useState({ w: 300, h: 400 })
@@ -1707,7 +1714,7 @@ const DrawScreen = React.forwardRef(function DrawScreen({ image, fracPerFt, aspe
               const sqftFS = inchesToFontSize(labelInches.sqft, fracPerFt, imgSize.w||400)
               const wallFS = inchesToFontSize(labelInches.wall, fracPerFt, imgSize.w||400)
               return (
-                <g key={room.id}>
+                <g key={`${room.id}-${labelSizeInches}`}>
                   <polygon points={toSvgPoints(room.points, imgSize.w, imgSize.h)} fill={(room.color||ROOM_COLORS[0]).fill} stroke="none"/>
                   {fracPerFt && room.points.map((a, i) => {
                     const b = room.points[(i+1) % room.points.length]
@@ -2349,7 +2356,7 @@ const ResultsScreen = React.forwardRef(function ResultsScreen({ image, rooms, jo
               const sqftFS = inchesToFontSize(labelInches.sqft, fracPerFt, imgSize.w||400)
               const wallFS = inchesToFontSize(labelInches.wall, fracPerFt, imgSize.w||400)
               return (
-              <g key={room.id}>
+              <g key={`${room.id}-${labelSizeInches}`}>
                 <polygon points={toSvgPoints(room.points,imgSize.w,imgSize.h)} fill={(room.color||ROOM_COLORS[0]).fill} stroke={(room.color||ROOM_COLORS[0]).border} strokeWidth="2"/>
                 {fracPerFt && room.points.map((a, i) => {
                   const b = room.points[(i+1) % room.points.length]
@@ -2651,11 +2658,24 @@ export default function App() {
   function handleCalibrateDone(fpf, ar) {
     setFracPerFt(fpf)
     setAspectRatio(ar)
-    setRooms([])
+    // Re-entering Draw through Calibrate (e.g. after backing out
+    // accidentally) should never discard already-traced rooms. If the
+    // scale genuinely changed, recalculate each room's sqft/perim against
+    // the new numbers instead — the traced shapes themselves don't need
+    // to change, just what they measure out to.
+    setRooms(prev => prev.map(r => ({
+      ...r,
+      sqft: Math.round(polygonAreaFt(r.points, fpf, ar)),
+      perim: Math.round(polygonPerimeterFt(r.points, fpf, ar))
+    })))
     setScreen('draw')
   }
 
   function handleBack() {
+    if (screen === 'draw' && drawScreenRef.current?.hasLocalUndo()) {
+      drawScreenRef.current.undoOneStep()
+      return
+    }
     if (screen === 'draw' && drawScreenRef.current?.hasActiveRoomEdit()) {
       if (!window.confirm("You're mid-edit on a room. Leave without finishing? Any un-saved changes will be discarded.")) return
       drawScreenRef.current.cancelActiveRoomEdit()
