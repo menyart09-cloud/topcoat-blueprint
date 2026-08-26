@@ -414,6 +414,58 @@ function reorderNamesByProximity(scannedRooms, targetCentroid) {
     .map(r => r.name)
 }
 
+// ── EXIF orientation handling ─────────────────────────────────
+// Historically, canvas ignored a photo's EXIF orientation tag even when
+// an <img> displayed it correctly — the classic "landscape photo comes
+// in rotated" bug. Verified directly against a real device-shot-style
+// test image: current Chromium now applies EXIF orientation correctly
+// for BOTH <img> decoding and canvas drawing, using the browser's own
+// naturalWidth/naturalHeight (already-corrected) as the source of truth.
+// So the fix isn't manually re-rotating — it's round-tripping every
+// upload through a canvas once, at natural size, which normalizes the
+// pixels and strips the EXIF tag entirely. This makes every screen
+// downstream (Straighten, Calibrate, Draw, the saved report) consistent
+// regardless of how any specific phone/app wrote that tag, and needs no
+// per-orientation transform math at all.
+async function fixImageOrientation(src, base64) {
+  try {
+    const img = await new Promise((resolve, reject) => {
+      const i = new Image()
+      i.onload = () => resolve(i)
+      i.onerror = reject
+      i.src = src
+    })
+    const canvas = document.createElement('canvas')
+    canvas.width = img.naturalWidth
+    canvas.height = img.naturalHeight
+    canvas.getContext('2d').drawImage(img, 0, 0)
+    const correctedSrc = canvas.toDataURL('image/jpeg', 0.92)
+    return { src: correctedSrc, base64: correctedSrc.split(',')[1] }
+  } catch {
+    return { src, base64 } // if anything goes wrong, fall back to the original rather than break the upload
+  }
+}
+
+// ── Manual 90° rotation — the fallback for cases automatic EXIF
+// correction can't catch (stripped metadata, screenshots, etc.).
+// Rotates clockwise each call; call four times to return to start.
+async function rotateImage90(src) {
+  const img = await new Promise((resolve, reject) => {
+    const i = new Image()
+    i.onload = () => resolve(i)
+    i.onerror = reject
+    i.src = src
+  })
+  const canvas = document.createElement('canvas')
+  canvas.width = img.naturalHeight
+  canvas.height = img.naturalWidth
+  const ctx = canvas.getContext('2d')
+  ctx.translate(canvas.width / 2, canvas.height / 2)
+  ctx.rotate(Math.PI / 2)
+  ctx.drawImage(img, -img.naturalWidth / 2, -img.naturalHeight / 2)
+  return canvas.toDataURL('image/jpeg', 0.92)
+}
+
 // Compress image to reduce file size for API calls
 async function compressImage(base64, mime, quality = 0.5) {
   return new Promise(resolve => {
@@ -590,10 +642,14 @@ function UploadScreen({ onFile, error, converting, convertProgress, jobName, set
     }
     const reader = new FileReader()
     reader.onerror = () => onFile({ error: 'Could not read file.' })
-    reader.onload = e => {
-      const src = e.target.result
-      const base64 = src.split(',')[1]
-      if (!base64 || base64.length < 200) { onFile({ error: 'Image appears empty.' }); return }
+    reader.onload = async e => {
+      const rawSrc = e.target.result
+      const rawBase64 = rawSrc.split(',')[1]
+      if (!rawBase64 || rawBase64.length < 200) { onFile({ error: 'Image appears empty.' }); return }
+      // Correct for EXIF orientation now, once, so every screen downstream
+      // (Straighten, Calibrate, Draw, the saved report) works with an
+      // already-correctly-oriented image and never has to think about it.
+      const { src, base64 } = await fixImageOrientation(rawSrc, rawBase64)
       onFile({ src, base64, mime, name: file.name, size: file.size })
     }
     reader.readAsDataURL(file)
@@ -972,12 +1028,20 @@ function PdfPageScreen({ thumbnails, buffer, pdfName, pdfSize, jobName, onImport
 // Optional. Tap two points along a line that should be level (e.g. a
 // wall edge), and the photo gets rotated so that line runs horizontal.
 // Skippable — most uploads (especially PDFs) won't need this.
-function StraightenScreen({ image, jobName, onDone, onSkip }) {
+function StraightenScreen({ image, jobName, onDone, onSkip, onRotate }) {
   const [points, setPoints]   = useState([])
   const [zoomLevel, setZoomLevel] = useState(1)
   const [working, setWorking] = useState(false)
+  const [rotating, setRotating] = useState(false)
   const [straightenErr, setStraightenErr] = useState('')
   const imgRef = useRef()
+
+  async function handleRotateClick() {
+    if (rotating || !onRotate) return
+    setRotating(true)
+    setPoints([]) // tap points are in the old orientation's coordinate space — clear them
+    try { await onRotate() } finally { setRotating(false) }
+  }
 
   function handleTap(e) {
     if (points.length >= 2) { setPoints([]); return }
@@ -1023,7 +1087,11 @@ function StraightenScreen({ image, jobName, onDone, onSkip }) {
     <div style={{ display:'flex', flexDirection:'column', height:'calc(100vh - 60px)' }}>
       <div style={{background:'#3d2b56',padding:'9px 16px',display:'flex',alignItems:'center',gap:8}}>
         {jobName && <span style={{color:'#c9a4ff',fontSize:11,fontWeight:700,flexShrink:0}}>{jobName}</span>}
-        <span style={{color:'#fff',fontWeight:600,fontSize:14}}>🔄 STRAIGHTEN — tap 2 points on a line that should be level · Pinch to zoom</span>
+        <span style={{color:'#fff',fontWeight:600,fontSize:14,flex:1}}>🔄 STRAIGHTEN — tap 2 points on a line that should be level · Pinch to zoom</span>
+        <button onClick={handleRotateClick} disabled={rotating} title="Rotate image 90°"
+          style={{flexShrink:0,width:34,height:34,borderRadius:8,background:'rgba(255,255,255,0.15)',border:'1px solid rgba(255,255,255,0.3)',color:'#fff',fontSize:16,cursor:rotating?'wait':'pointer'}}>
+          {rotating ? '…' : '↻'}
+        </button>
       </div>
 
       <ZoomableBlueprint onTap={handleTap} style={{flex:1,minHeight:0,maxHeight:'60vh'}} onZoomChange={setZoomLevel}
@@ -1242,8 +1310,12 @@ const DrawScreen = React.forwardRef(function DrawScreen({ image, fracPerFt, aspe
 
   // Room names are scanned on-demand when user closes a polygon
 
-  const colorIdx = rooms.length % ROOM_COLORS.length
-  const color    = ROOM_COLORS[colorIdx]
+  // Assign the next NEW room whichever color isn't currently in use by any
+  // remaining room — not just "the next one in the palette" — so deleting
+  // a room and adding another can never leave two rooms sharing a color.
+  const usedColorBorders = new Set(rooms.map(r => (r.color || ROOM_COLORS[0]).border))
+  const nextColor = ROOM_COLORS.find(c => !usedColorBorders.has(c.border))
+  const color = nextColor || ROOM_COLORS[rooms.length % ROOM_COLORS.length]
 
   function getPoint(e) {
     if (!imgRef.current) return null
@@ -1456,8 +1528,7 @@ const DrawScreen = React.forwardRef(function DrawScreen({ image, fracPerFt, aspe
         sqft: naming.sqft || 0,
         perim: naming.perim || 0,
         points: [...points],
-        color: roomColor,
-        colorIdx: colorIdx || 0
+        color: roomColor
       })
       setPoints([]); setNaming(null); setCustomName('')
       setEditingRoomId(null); setEditingColor(null); setEditingName(''); setEditingOriginalRoom(null)
@@ -2535,6 +2606,12 @@ export default function App() {
     setScreen('straighten')
   }
 
+  async function handleRotateImage() {
+    if (!image?.src) return
+    const rotatedSrc = await rotateImage90(image.src)
+    setImage(prev => ({ ...prev, src: rotatedSrc, base64: rotatedSrc.split(',')[1] }))
+  }
+
   function handleStraightenDone(result) {
     setImage(prev => ({ ...prev, ...result }))
     setScreen('calibrate')
@@ -2584,7 +2661,7 @@ export default function App() {
       <Header screen={screen} onBack={handleBack} onReset={reset} />
       {screen==='upload'    && <UploadScreen    onFile={handleFile} error={error} converting={converting} convertProgress={convertProgress} jobName={jobName} setJobName={setJobName} />}
       {screen==='pdfPages'  && pdfPicker && <PdfPageScreen thumbnails={pdfPicker.thumbnails} buffer={pdfPicker.buffer} pdfName={pdfPicker.name} pdfSize={pdfPicker.size} jobName={jobName} onImported={handlePdfPageImported} />}
-      {screen==='straighten' && <StraightenScreen image={image} jobName={jobName} onDone={handleStraightenDone} onSkip={()=>setScreen('calibrate')} />}
+      {screen==='straighten' && <StraightenScreen image={image} jobName={jobName} onDone={handleStraightenDone} onSkip={()=>setScreen('calibrate')} onRotate={handleRotateImage} />}
       {screen==='calibrate' && <CalibrateScreen image={image} jobName={jobName} onDone={handleCalibrateDone} />}
       {screen==='draw'      && <DrawScreen      ref={drawScreenRef} image={image} fracPerFt={fracPerFt} aspectRatio={aspectRatio} rooms={rooms} jobName={jobName} onAddRoom={r=>setRooms(p=>[...p,r])} onRemoveRoom={id=>setRooms(p=>p.filter(r=>r.id!==id))} onUpdateRoom={(id,patch)=>setRooms(p=>p.map(r=>r.id===id?{...r,...patch}:r))} onFinish={()=>setScreen('results')} labelSizeInches={labelSizeInches} setLabelSizeInches={setLabelSizeInches} />}
       {screen==='results'   && <ResultsScreen   ref={resultsScreenRef} image={image} rooms={rooms} jobName={jobName} setJobName={setJobName} fracPerFt={fracPerFt} aspectRatio={aspectRatio} labelSizeInches={labelSizeInches} miscItems={miscItems} setMiscItems={setMiscItems} reportSaved={reportSaved} onDirty={()=>setReportSaved(false)} onReset={reset} onEdit={()=>setScreen('draw')} onSaved={()=>{ setReportSaved(true); setHasSavedOnce(true) }} />}
