@@ -2619,12 +2619,17 @@ export default function App() {
   const [unsavedWarning, setUnsavedWarning] = useState(null) // null | 'unsaved' — controls the New Job warning modal
   const firstRoomsRender = useRef(true)
   useEffect(() => {
-    // Any change to the rooms or job name after a save means that save no
-    // longer reflects what's on screen — re-arm the warning rather than
-    // silently letting it go stale.
+    // Any change to the rooms, job name, or label size after a save means
+    // that save no longer reflects what's on screen — re-arm the warning
+    // rather than silently letting it go stale. This lives at the App
+    // level (not inside ResultsScreen) specifically because labelSizeInches
+    // can change while ResultsScreen is unmounted (e.g. changed back on
+    // Draw, then returning to Results) — a component-local "skip first
+    // render" guard would miss that case entirely, since from that
+    // component's perspective the new value was already there on mount.
     if (firstRoomsRender.current) { firstRoomsRender.current = false; return }
     setReportSaved(false)
-  }, [rooms, jobName, miscItems])
+  }, [rooms, jobName, miscItems, labelSizeInches])
 
   const handleFile = useCallback((payload) => {
     if (payload.loading) { setConverting(true); setError(''); setConvertProgress(payload.progress || null); return }
