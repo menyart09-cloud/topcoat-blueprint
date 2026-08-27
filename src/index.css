@@ -6,6 +6,18 @@ html, body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
   color: #1a1a1a;
+  /* Some mobile browsers (notably iOS Safari) apply their own "text
+     inflation" to make small text more readable, silently overriding
+     explicitly-set font sizes — including SVG text elements — regardless
+     of what the code specifies. This disables that override so font
+     sizes render exactly as set, everywhere in the app. */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+* {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 #root {
