@@ -269,6 +269,16 @@ function inchesToFontSize(inches, fracPerFt, imgWpx) {
   return Math.max(frac * imgWpx, 4)
 }
 
+// Room labels are rendered at this FIXED font-size, with the actual
+// desired size applied via a CSS transform:scale() instead of varying
+// font-size directly. Some mobile browsers (iOS Safari confirmed, per
+// MDN's own "limited availability" note on text-size-adjust) apply their
+// own "text inflation" to font-size — silently overriding whatever size
+// was requested, independent of the DOM/React. A transform runs AFTER
+// layout, purely visually, and isn't subject to that override at all —
+// this sidesteps the unreliable browser behavior instead of fighting it.
+const LABEL_BASE_PX = 24
+
 // ── Derive name/sqft/wall label sizes (in real-world inches) from the
 // single user-adjustable base value, keeping the same proportions.
 function getLabelInches(labelSizeInches) {
@@ -1778,24 +1788,30 @@ const DrawScreen = React.forwardRef(function DrawScreen({ image, fracPerFt, aspe
                     const midX = (a.x+b.x)/2, midY = (a.y+b.y)/2
                     const lx = midX + (c.x - midX) * 0.05
                     const ly = midY + (c.y - midY) * 0.05
+                    const lpx = lx * imgSize.w, lpy = ly * imgSize.h
                     return (
-                      <text key={`wall-${room.id}-${i}`} x={`${lx*100}%`} y={`${ly*100}%`}
-                        textAnchor="middle" dominantBaseline="middle" fill="#000" fontSize={wallFS} fontWeight="400"
+                      <text key={`wall-${room.id}-${i}`} x={lpx} y={lpy}
+                        transform={`translate(${lpx} ${lpy}) scale(${wallFS/LABEL_BASE_PX}) translate(${-lpx} ${-lpy})`}
+                        textAnchor="middle" dominantBaseline="middle" fill="#000" fontSize={LABEL_BASE_PX} fontWeight="400"
                         style={{filter:'drop-shadow(0 0 2px rgba(255,255,255,0.9))'}}>
                         {feetInchesLabel(lenFt)}
                       </text>
                     )
                   })}
-                  <text x={`${c.x*100}%`} y={`${c.y*100}%`}
-                    textAnchor="middle" dominantBaseline="middle" fill="#fff" fontSize={nameFS} fontWeight="800"
+                  {(() => { const cpx = c.x*imgSize.w, cpy = c.y*imgSize.h; return (<>
+                  <text x={cpx} y={cpy}
+                    transform={`translate(${cpx} ${cpy}) scale(${nameFS/LABEL_BASE_PX}) translate(${-cpx} ${-cpy})`}
+                    textAnchor="middle" dominantBaseline="middle" fill="#fff" fontSize={LABEL_BASE_PX} fontWeight="800"
                     style={{filter:'drop-shadow(0 1px 2px rgba(0,0,0,0.8))'}}>
                     {room.name}
                   </text>
-                  <text x={`${c.x*100}%`} y={`${c.y*100}%`} dy={nameFS*0.9}
-                    textAnchor="middle" dominantBaseline="middle" fill="rgba(255,255,255,0.9)" fontSize={sqftFS} fontWeight="600"
+                  <text x={cpx} y={cpy + nameFS*0.9}
+                    transform={`translate(${cpx} ${cpy + nameFS*0.9}) scale(${sqftFS/LABEL_BASE_PX}) translate(${-cpx} ${-(cpy + nameFS*0.9)})`}
+                    textAnchor="middle" dominantBaseline="middle" fill="rgba(255,255,255,0.9)" fontSize={LABEL_BASE_PX} fontWeight="600"
                     style={{filter:'drop-shadow(0 1px 2px rgba(0,0,0,0.8))'}}>
                     {room.sqft.toLocaleString()} sf
                   </text>
+                  </>)})()}
                 </g>
               )
             })}
@@ -2420,24 +2436,30 @@ const ResultsScreen = React.forwardRef(function ResultsScreen({ image, rooms, jo
                   const midX = (a.x+b.x)/2, midY = (a.y+b.y)/2
                   const lx = midX + (c.x - midX) * 0.05
                   const ly = midY + (c.y - midY) * 0.05
+                  const lpx = lx * imgSize.w, lpy = ly * imgSize.h
                   return (
-                    <text key={`wall-${room.id}-${i}`} x={`${lx*100}%`} y={`${ly*100}%`}
-                      textAnchor="middle" dominantBaseline="middle" fill="#000" fontSize={wallFS} fontWeight="400"
+                    <text key={`wall-${room.id}-${i}`} x={lpx} y={lpy}
+                      transform={`translate(${lpx} ${lpy}) scale(${wallFS/LABEL_BASE_PX}) translate(${-lpx} ${-lpy})`}
+                      textAnchor="middle" dominantBaseline="middle" fill="#000" fontSize={LABEL_BASE_PX} fontWeight="400"
                       style={{filter:'drop-shadow(0 0 2px rgba(255,255,255,0.9))'}}>
                       {feetInchesLabel(lenFt)}
                     </text>
                   )
                 })}
-                <text x={`${c.x*100}%`} y={`${c.y*100}%`}
-                  textAnchor="middle" dominantBaseline="middle" fill="#fff" fontSize={nameFS} fontWeight="800"
+                {(() => { const cpx = c.x*imgSize.w, cpy = c.y*imgSize.h; return (<>
+                <text x={cpx} y={cpy}
+                  transform={`translate(${cpx} ${cpy}) scale(${nameFS/LABEL_BASE_PX}) translate(${-cpx} ${-cpy})`}
+                  textAnchor="middle" dominantBaseline="middle" fill="#fff" fontSize={LABEL_BASE_PX} fontWeight="800"
                   style={{filter:'drop-shadow(0 1px 3px rgba(0,0,0,0.9))'}}>
                   {room.name}
                 </text>
-                <text x={`${c.x*100}%`} y={`${c.y*100}%`} dy={nameFS*0.9}
-                  textAnchor="middle" dominantBaseline="middle" fill="rgba(255,255,255,0.9)" fontSize={sqftFS} fontWeight="600"
+                <text x={cpx} y={cpy + nameFS*0.9}
+                  transform={`translate(${cpx} ${cpy + nameFS*0.9}) scale(${sqftFS/LABEL_BASE_PX}) translate(${-cpx} ${-(cpy + nameFS*0.9)})`}
+                  textAnchor="middle" dominantBaseline="middle" fill="rgba(255,255,255,0.9)" fontSize={LABEL_BASE_PX} fontWeight="600"
                   style={{filter:'drop-shadow(0 1px 3px rgba(0,0,0,0.9))'}}>
                   {room.sqft.toLocaleString()} sf
                 </text>
+                </>)})()}
               </g>
               )
             })}
