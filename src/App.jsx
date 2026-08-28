@@ -747,87 +747,124 @@ function UploadScreen({ onFile, error, converting, convertProgress, jobName, set
 // Handles pinch-to-zoom + pan on mobile, Ctrl+wheel zoom + drag-pan on desktop.
 // Exposes centerOn(xAtZoom1, yAtZoom1, targetZoom) via ref for programmatic
 // centering (used by Move Corner to auto-center/zoom on a selected corner).
-const ZoomableBlueprint = React.forwardRef(function ZoomableBlueprint({ onTap, children, style, onZoomChange, renderOverlay }, ref) {
+const ZoomableBlueprint = React.forwardRef(function ZoomableBlueprint({ onTap, children, style, onZoomChange, renderOverlay, initialView, onViewChange }, ref) {
   const containerRef = useRef()
-  const lastTouchRef = useRef(null)
-  const pinchRef     = useRef(null)
-  const [zoom, setZoom] = useState(1)
-  const zoomRef = useRef(1)
-  const pendingCenterRef = useRef(null)
-  const [, forceOverlayUpdate] = useState(0)
+  const contentRef   = useRef() // unscaled wrapper around children — used to measure natural (zoom=1) size
+  const lastTouchRef  = useRef(null)
+  const pinchRef      = useRef(null)
+  const singleDragRef = useRef(null) // single-finger drag-to-pan on touch (previously handled for free by native scroll)
 
-  // Re-render the overlay on scroll (imperative scrollLeft/scrollTop changes
-  // don't trigger React re-renders on their own, but overlay marker positions
-  // depend on the current scroll offset).
+  // The "true" pan/zoom state, tracked EXACTLY in JS memory and only ever
+  // WRITTEN to the screen via a CSS transform — never read back from the
+  // DOM. This is what fixes the drift-toward-a-corner bug: browsers
+  // silently round scrollLeft/scrollTop to the nearest physical pixel
+  // (confirmed via W3C discussion to be inconsistent and device-dependent
+  // — e.g. a device with a 2.625 pixel ratio can turn scrollTo(0,20) into
+  // 19.8). Reading that already-rounded value back to compute the NEXT
+  // step compounds tiny errors over a multi-step pinch gesture. Keeping
+  // our own exact numbers breaks that feedback loop entirely.
+  const viewRef = useRef(initialView || { zoom: 1, panX: 0, panY: 0 })
+  const [, bump] = useState(0)
+  const rerender = () => bump(v => v + 1)
+
+  const [containerSize, setContainerSize] = useState({ w: 0, h: 0 })
+  const [baseSize, setBaseSize] = useState({ w: 0, h: 0 }) // content's natural (zoom=1) size, for clamping — 0 means "not yet measured"
+  const appliedInitialView = useRef(false)
+
   useEffect(() => {
     const container = containerRef.current
-    if (!container || !renderOverlay) return
-    let raf = null
-    function onScroll() {
-      if (raf) return
-      raf = requestAnimationFrame(() => { forceOverlayUpdate(v => v + 1); raf = null })
-    }
-    container.addEventListener('scroll', onScroll, { passive: true })
-    return () => container.removeEventListener('scroll', onScroll)
-  }, [renderOverlay])
+    const content = contentRef.current
+    if (!container || !content) return
+    const roContainer = new ResizeObserver(() => setContainerSize({ w: container.clientWidth, h: container.clientHeight }))
+    roContainer.observe(container)
+    const roContent = new ResizeObserver(() => setBaseSize({ w: content.offsetWidth, h: content.offsetHeight }))
+    roContent.observe(content)
+    return () => { roContainer.disconnect(); roContent.disconnect() }
+  }, [])
 
-  // Converts a fractional image coordinate (0-1) + the image's own unscaled
-  // pixel size into true on-screen pixel coordinates, given the CURRENT zoom
-  // and scroll position. Overlay markers built from this are positioned with
-  // plain pixel math — not CSS transform + division — so their rendered size
-  // is genuinely fixed and can't inherit any transform/zoom-tracking bug.
-  function toScreen(fx, fy, baseW, baseH) {
-    const container = containerRef.current
-    if (!container) return { x: 0, y: 0 }
+  // Keeps pan within the content's own edges — never shows blank space
+  // beyond the image — while centering content that's narrower or
+  // shorter than the container rather than pinning it to a corner.
+  function clampView(zoom, panX, panY) {
+    const cw = containerSize.w, ch = containerSize.h
+    const contentW = baseSize.w * zoom, contentH = baseSize.h * zoom
+    let minX, maxX, minY, maxY
+    if (contentW <= cw) { minX = maxX = (cw - contentW) / 2 }
+    else { minX = cw - contentW; maxX = 0 }
+    if (contentH <= ch) { minY = maxY = (ch - contentH) / 2 }
+    else { minY = ch - contentH; maxY = 0 }
     return {
-      x: fx * baseW * zoomRef.current - container.scrollLeft,
-      y: fy * baseH * zoomRef.current - container.scrollTop
+      zoom,
+      panX: Math.min(Math.max(panX, minX), maxX),
+      panY: Math.min(Math.max(panY, minY), maxY)
     }
+  }
+
+  function setView(zoom, panX, panY) {
+    const clamped = clampView(zoom, panX, panY)
+    viewRef.current = clamped
+    rerender()
+    if (onZoomChange) onZoomChange(clamped.zoom)
+    if (onViewChange && containerSize.w > 0 && baseSize.w > 0) {
+      // Report WHERE we're centered as a fraction of the image (0-1), not
+      // raw pixels — this is what makes it possible to restore "roughly
+      // the same spot you were looking at" on a totally different screen,
+      // even when Straighten has changed the image's actual pixel
+      // dimensions in between (its rotate+crop step).
+      const fx = (containerSize.w / 2 - clamped.panX) / (clamped.zoom * baseSize.w)
+      const fy = (containerSize.h / 2 - clamped.panY) / (clamped.zoom * baseSize.h)
+      onViewChange({ zoom: clamped.zoom, fx, fy })
+    }
+  }
+
+  // Apply an incoming fractional view (from a previous screen) exactly
+  // once, as soon as we've actually measured our own container/content —
+  // not on every later resize, which would fight the user's own panning.
+  useEffect(() => {
+    if (appliedInitialView.current) return
+    if (!containerSize.w || !baseSize.w) return
+    appliedInitialView.current = true
+    if (initialView && initialView.zoom > 1.01) {
+      const z = Math.min(Math.max(initialView.zoom, 1), 12)
+      const panX = containerSize.w / 2 - initialView.fx * baseSize.w * z
+      const panY = containerSize.h / 2 - initialView.fy * baseSize.h * z
+      const clamped = clampView(z, panX, panY)
+      viewRef.current = clamped
+      rerender()
+      if (onZoomChange) onZoomChange(clamped.zoom)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [containerSize.w, containerSize.h, baseSize.w, baseSize.h])
+
+  // Converts a fractional image coordinate (0-1) into true on-screen pixel
+  // coordinates, using only our own exact JS-tracked view state — no DOM
+  // reads, so overlay markers can never inherit any rounding drift either.
+  function toScreen(fx, fy, imgW, imgH) {
+    const v = viewRef.current
+    return { x: fx * imgW * v.zoom + v.panX, y: fy * imgH * v.zoom + v.panY }
   }
 
   React.useImperativeHandle(ref, () => ({
     centerOn(xAtZoom1, yAtZoom1, targetZoom) {
       const z = Math.min(Math.max(targetZoom, 1), 12)
-      const apply = () => {
-        const container = containerRef.current
-        if (!container) return
-        container.scrollLeft = xAtZoom1 * z - container.clientWidth / 2
-        container.scrollTop  = yAtZoom1 * z - container.clientHeight / 2
-      }
-      if (z === zoomRef.current) {
-        // Zoom isn't changing, so no re-render will happen — scroll right away
-        // rather than waiting on a state change that will never come.
-        requestAnimationFrame(apply)
-      } else {
-        pendingCenterRef.current = apply
-        zoomRef.current = z
-        setZoom(z)
-        onZoomChange && onZoomChange(z)
-      }
-    }
+      const panX = containerSize.w / 2 - xAtZoom1 * z
+      const panY = containerSize.h / 2 - yAtZoom1 * z
+      setView(z, panX, panY)
+    },
+    getView() { return viewRef.current }
   }))
-
-  // Apply the pending scroll position once the DOM has re-rendered at the new zoom
-  useEffect(() => {
-    if (!pendingCenterRef.current) return
-    pendingCenterRef.current()
-    pendingCenterRef.current = null
-  }, [zoom])
-
-  // Desktop drag-to-pan state
-  const isDragging = useRef(false)
-  const lastMouse  = useRef({ x: 0, y: 0 })
 
   function onTouchStart(e) {
     if (e.touches.length === 2) {
-      // Start pinch
       pinchRef.current = Math.hypot(
         e.touches[0].clientX - e.touches[1].clientX,
         e.touches[0].clientY - e.touches[1].clientY
       )
-      lastTouchRef.current = null // cancel any pending tap
+      lastTouchRef.current = null
+      singleDragRef.current = null
     } else if (e.touches.length === 1) {
       lastTouchRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, time: Date.now() }
+      singleDragRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY }
       pinchRef.current = null
     }
   }
@@ -840,32 +877,50 @@ const ZoomableBlueprint = React.forwardRef(function ZoomableBlueprint({ onTap, c
         e.touches[0].clientY - e.touches[1].clientY
       )
       const delta = newDist / pinchRef.current
-      const oldZoom = zoomRef.current
+      const v = viewRef.current
+      const oldZoom = v.zoom
       const newZoom = Math.min(Math.max(oldZoom * delta, 1), 12)
 
-      // Zoom toward pinch midpoint so view stays centered on fingers
       const container = containerRef.current
       if (container && newZoom !== oldZoom) {
         const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2
         const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2
         const rect = container.getBoundingClientRect()
-        const relX = midX - rect.left + container.scrollLeft
-        const relY = midY - rect.top  + container.scrollTop
+        const screenX = midX - rect.left, screenY = midY - rect.top
         const ratio = newZoom / oldZoom
-        container.scrollLeft = relX * ratio - (midX - rect.left)
-        container.scrollTop  = relY * ratio - (midY - rect.top)
+        // Exact zoom-toward-point formula, using only our own tracked pan
+        // (never scrollLeft/scrollTop): newPan = screen*(1-ratio) + oldPan*ratio
+        const newPanX = screenX * (1 - ratio) + v.panX * ratio
+        const newPanY = screenY * (1 - ratio) + v.panY * ratio
+        setView(newZoom, newPanX, newPanY)
       }
-
-      zoomRef.current = newZoom
-      setZoom(newZoom)
-      onZoomChange && onZoomChange(newZoom)
       pinchRef.current = newDist
       lastTouchRef.current = null
+      singleDragRef.current = null
+    } else if (e.touches.length === 1 && singleDragRef.current) {
+      const t = e.touches[0]
+      const v = viewRef.current
+      if (v.zoom > 1.01) {
+        // Single-finger pan when zoomed in — replaces what native browser
+        // scrolling used to provide for free before this became a
+        // transform-only (overflow:hidden) container.
+        e.preventDefault()
+        const dx = t.clientX - singleDragRef.current.x
+        const dy = t.clientY - singleDragRef.current.y
+        setView(v.zoom, v.panX + dx, v.panY + dy)
+      }
+      singleDragRef.current = { x: t.clientX, y: t.clientY }
+      if (lastTouchRef.current) {
+        const dx = Math.abs(t.clientX - lastTouchRef.current.x)
+        const dy = Math.abs(t.clientY - lastTouchRef.current.y)
+        if (dx > 12 || dy > 12) lastTouchRef.current = null // moved too far to still be a tap
+      }
     }
   }
 
   function onTouchEnd(e) {
-    if (pinchRef.current !== null) { pinchRef.current = null; return }
+    if (pinchRef.current !== null) { pinchRef.current = null; singleDragRef.current = null; return }
+    singleDragRef.current = null
     if (!lastTouchRef.current) return
     const t = e.changedTouches[0]
     const dx = Math.abs(t.clientX - lastTouchRef.current.x)
@@ -878,41 +933,42 @@ const ZoomableBlueprint = React.forwardRef(function ZoomableBlueprint({ onTap, c
   }
 
   // Desktop: Ctrl+wheel (or trackpad pinch) = zoom toward cursor
-  // Regular wheel / trackpad scroll = pan (browser default)
   useEffect(() => {
     const container = containerRef.current
     if (!container) return
 
     function onWheel(e) {
-      // Only zoom when Ctrl is held (trackpad pinch also sets ctrlKey)
-      if (!e.ctrlKey) return          // ← let browser handle normal scroll = pan
-
+      if (!e.ctrlKey) return // let the browser handle normal scroll = pan
       e.preventDefault()
       const rect = container.getBoundingClientRect()
-      const mouseX = e.clientX - rect.left + container.scrollLeft
-      const mouseY = e.clientY - rect.top  + container.scrollTop
+      const screenX = e.clientX - rect.left, screenY = e.clientY - rect.top
+      const v = viewRef.current
       const delta = e.deltaY > 0 ? 0.85 : 1.18
-      const oldZoom = zoomRef.current
+      const oldZoom = v.zoom
       const newZoom = Math.min(Math.max(oldZoom * delta, 1), 12)
       if (newZoom === oldZoom) return
       const ratio = newZoom / oldZoom
-      container.scrollLeft = mouseX * ratio - (e.clientX - rect.left)
-      container.scrollTop  = mouseY * ratio - (e.clientY - rect.top)
-      zoomRef.current = newZoom
-      setZoom(newZoom)
-      onZoomChange && onZoomChange(newZoom)
+      const newPanX = screenX * (1 - ratio) + v.panX * ratio
+      const newPanY = screenY * (1 - ratio) + v.panY * ratio
+      setView(newZoom, newPanX, newPanY)
     }
 
     container.addEventListener('wheel', onWheel, { passive: false })
     return () => container.removeEventListener('wheel', onWheel)
-  }, [])
+    // Re-attach (fresh closure) whenever the measured sizes actually change —
+    // otherwise this effect's empty deps would permanently freeze onWheel's
+    // view of containerSize/baseSize at 0,0 (their value before the
+    // ResizeObserver ever fires), silently breaking zoom-toward-cursor.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [containerSize.w, containerSize.h, baseSize.w, baseSize.h])
 
   // Desktop drag-to-pan (left mouse button)
-  const dragMoved = useRef(false)
+  const isDragging = useRef(false)
+  const lastMouse  = useRef({ x: 0, y: 0 })
+  const dragMoved  = useRef(false)
 
   function onMouseDown(e) {
-    // Only left button, and only when zoomed (otherwise normal click = tap)
-    if (e.button !== 0 || zoomRef.current <= 1.01) return
+    if (e.button !== 0 || viewRef.current.zoom <= 1.01) return
     isDragging.current = true
     dragMoved.current = false
     lastMouse.current = { x: e.clientX, y: e.clientY }
@@ -921,13 +977,11 @@ const ZoomableBlueprint = React.forwardRef(function ZoomableBlueprint({ onTap, c
 
   function onMouseMove(e) {
     if (!isDragging.current) return
-    const container = containerRef.current
-    if (!container) return
     const dx = e.clientX - lastMouse.current.x
     const dy = e.clientY - lastMouse.current.y
     if (Math.abs(dx) > 3 || Math.abs(dy) > 3) dragMoved.current = true
-    container.scrollLeft -= dx
-    container.scrollTop  -= dy
+    const v = viewRef.current
+    setView(v.zoom, v.panX + dx, v.panY + dy)
     lastMouse.current = { x: e.clientX, y: e.clientY }
   }
 
@@ -935,16 +989,16 @@ const ZoomableBlueprint = React.forwardRef(function ZoomableBlueprint({ onTap, c
     isDragging.current = false
   }
 
+  const view = viewRef.current
   return (
     <div style={{ position:'relative', height:'100%', ...style }}>
     <div ref={containerRef}
       style={{
-        overflow: 'auto',
+        overflow: 'hidden',
         background: '#111',
         position: 'relative',
-        cursor: zoom > 1.01 ? 'grab' : 'crosshair',
-        WebkitOverflowScrolling: 'touch',
-        touchAction: 'pan-x pan-y',
+        cursor: view.zoom > 1.01 ? 'grab' : 'crosshair',
+        touchAction: 'none', // we handle all pan/zoom ourselves now — no native scroll involved at all
         height: '100%',
         width: '100%'
       }}
@@ -961,19 +1015,17 @@ const ZoomableBlueprint = React.forwardRef(function ZoomableBlueprint({ onTap, c
         if (!('ontouchstart' in window)) onTap && onTap(e)
       }}
     >
-      {/* Outer div expands to hold scaled content so container can scroll */}
-      <div style={{ width: `${zoom * 100}%`, height: `${zoom * 100}%`, minHeight: '100%' }}>
-        <div style={{
-          transform: `scale(${zoom})`,
-          transformOrigin: 'top left',
-          transition: 'none',
-          position: 'relative',
-          width: `${100 / zoom}%`,
-          imageRendering: 'high-quality',
-          WebkitImageRendering: 'high-quality',
-        }}>
-          {children}
-        </div>
+      <div ref={contentRef} style={{
+        transform: `translate(${view.panX}px, ${view.panY}px) scale(${view.zoom})`,
+        transformOrigin: 'top left',
+        transition: 'none',
+        position: 'absolute',
+        top: 0, left: 0,
+        width: '100%',
+        imageRendering: 'high-quality',
+        WebkitImageRendering: 'high-quality',
+      }}>
+        {children}
       </div>
     </div>
     {/* Overlay lives OUTSIDE the scrolling/transformed subtree, as a sibling
@@ -1060,7 +1112,7 @@ function PdfPageScreen({ thumbnails, buffer, pdfName, pdfSize, jobName, onImport
 // Optional. Tap two points along a line that should be level (e.g. a
 // wall edge), and the photo gets rotated so that line runs horizontal.
 // Skippable — most uploads (especially PDFs) won't need this.
-function StraightenScreen({ image, onDone, onSkip, onRotate }) {
+function StraightenScreen({ image, onDone, onSkip, onRotate, blueprintView, setBlueprintView }) {
   const [points, setPoints]   = useState([])
   const [zoomLevel, setZoomLevel] = useState(1)
   const [working, setWorking] = useState(false)
@@ -1126,6 +1178,7 @@ function StraightenScreen({ image, onDone, onSkip, onRotate }) {
       </div>
 
       <ZoomableBlueprint onTap={handleTap} style={{flex:1,minHeight:0,maxHeight:'60vh'}} onZoomChange={setZoomLevel}
+        initialView={blueprintView} onViewChange={setBlueprintView}
         renderOverlay={toScreen => (
           <>
             {points.map((pt,i) => {
@@ -1190,7 +1243,7 @@ function StraightenScreen({ image, onDone, onSkip, onRotate }) {
 }
 
 // ── Calibration Screen ────────────────────────────────────────
-function CalibrateScreen({ image, jobName, onDone }) {
+function CalibrateScreen({ image, jobName, onDone, blueprintView, setBlueprintView }) {
   const [points, setPoints]   = useState([])
   const [knownFt, setKnownFt] = useState('')
   const [zoomLevel, setZoomLevel] = useState(1)
@@ -1252,6 +1305,7 @@ function CalibrateScreen({ image, jobName, onDone }) {
 
       {/* Zoomable blueprint - max height */}
       <ZoomableBlueprint onTap={handleTap} style={{flex:1,minHeight:0,maxHeight:'60vh'}} onZoomChange={setZoomLevel}
+        initialView={blueprintView} onViewChange={setBlueprintView}
         renderOverlay={toScreen => (
           <>
             {points.map((pt,i) => {
@@ -1306,7 +1360,7 @@ function CalibrateScreen({ image, jobName, onDone }) {
 }
 
 // ── Drawing Screen ────────────────────────────────────────────
-const DrawScreen = React.forwardRef(function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, onRemoveRoom, onUpdateRoom, onFinish, labelSizeInches, setLabelSizeInches }, ref) {
+const DrawScreen = React.forwardRef(function DrawScreen({ image, fracPerFt, aspectRatio, rooms, jobName, onAddRoom, onRemoveRoom, onUpdateRoom, onFinish, labelSizeInches, setLabelSizeInches, blueprintView, setBlueprintView }, ref) {
   const [points,      setPoints]      = useState([])
   const [naming,      setNaming]      = useState(null)
   const [customName,  setCustomName]  = useState('')
@@ -1647,6 +1701,7 @@ const DrawScreen = React.forwardRef(function DrawScreen({ image, fracPerFt, aspe
 
       {/* Zoomable pinch-to-zoom drawing area - fills all available space */}
       <ZoomableBlueprint ref={blueprintCtrlRef} onTap={e=>{if(!naming&&!identifying)handleTap(e)}} style={{flex:1,maxHeight:'none',minHeight:0}} onZoomChange={setZoomLevel}
+        initialView={blueprintView} onViewChange={setBlueprintView}
         renderOverlay={toScreen => (
           <>
             <svg style={{position:'absolute',inset:0,width:'100%',height:'100%',pointerEvents:'none',overflow:'visible'}}>
@@ -2613,6 +2668,12 @@ export default function App() {
   const [convertProgress, setConvertProgress] = useState(null) // {current,total} while generating PDF page previews
   const [pdfPicker,   setPdfPicker]   = useState(null) // {thumbnails, buffer, name, size} for multi-page PDFs
   const drawScreenRef = useRef() // lets handleBack/reset check for & safely cancel a mid-edit room
+  // Persists roughly "where you were zoomed/looking" across Straighten ->
+  // Calibrate -> Draw, so zooming in on the room you're about to trace
+  // doesn't get thrown away just for moving between screens. Stored as a
+  // fraction of the image (not raw pixels) since Straighten's rotate+crop
+  // step genuinely changes the image's pixel dimensions between screens.
+  const [blueprintView, setBlueprintView] = useState(null)
   const resultsScreenRef = useRef() // lets New Job trigger a save remotely if the user chooses to
   const [reportSaved, setReportSaved] = useState(false) // true once the CURRENT state of the job has been saved
   const [hasSavedOnce, setHasSavedOnce] = useState(false) // true once ANY save has happened this job — picks which warning copy to show
@@ -2641,12 +2702,13 @@ export default function App() {
       setScreen('pdfPages')
       return
     }
-    setError(''); setImage(payload); setScreen('straighten')
+    setError(''); setImage(payload); setScreen('straighten'); setBlueprintView(null)
   }, [])
 
   function handlePdfPageImported(payload) {
     setImage(payload)
     setScreen('straighten')
+    setBlueprintView(null)
   }
 
   async function handleRotateImage() {
@@ -2698,7 +2760,7 @@ export default function App() {
   function performReset() {
     setScreen('upload'); setImage(null); setFracPerFt(null); setRooms([]); setError(''); setConverting(false)
     setJobName(''); setPdfPicker(null); setLabelSizeInches(DEFAULT_LABEL_SIZE_INCHES); setMiscItems([])
-    setReportSaved(false); setHasSavedOnce(false); setUnsavedWarning(null)
+    setReportSaved(false); setHasSavedOnce(false); setUnsavedWarning(null); setBlueprintView(null)
   }
 
   function reset() {
@@ -2723,9 +2785,9 @@ export default function App() {
       <Header screen={screen} onBack={handleBack} onReset={reset} />
       {screen==='upload'    && <UploadScreen    onFile={handleFile} error={error} converting={converting} convertProgress={convertProgress} jobName={jobName} setJobName={setJobName} />}
       {screen==='pdfPages'  && pdfPicker && <PdfPageScreen thumbnails={pdfPicker.thumbnails} buffer={pdfPicker.buffer} pdfName={pdfPicker.name} pdfSize={pdfPicker.size} jobName={jobName} onImported={handlePdfPageImported} />}
-      {screen==='straighten' && <StraightenScreen image={image} onDone={handleStraightenDone} onSkip={()=>setScreen('calibrate')} onRotate={handleRotateImage} />}
-      {screen==='calibrate' && <CalibrateScreen image={image} jobName={jobName} onDone={handleCalibrateDone} />}
-      {screen==='draw'      && <DrawScreen      ref={drawScreenRef} image={image} fracPerFt={fracPerFt} aspectRatio={aspectRatio} rooms={rooms} jobName={jobName} onAddRoom={r=>setRooms(p=>[...p,r])} onRemoveRoom={id=>setRooms(p=>p.filter(r=>r.id!==id))} onUpdateRoom={(id,patch)=>setRooms(p=>p.map(r=>r.id===id?{...r,...patch}:r))} onFinish={()=>setScreen('results')} labelSizeInches={labelSizeInches} setLabelSizeInches={setLabelSizeInches} />}
+      {screen==='straighten' && <StraightenScreen image={image} onDone={handleStraightenDone} onSkip={()=>setScreen('calibrate')} onRotate={handleRotateImage} blueprintView={blueprintView} setBlueprintView={setBlueprintView} />}
+      {screen==='calibrate' && <CalibrateScreen image={image} jobName={jobName} onDone={handleCalibrateDone} blueprintView={blueprintView} setBlueprintView={setBlueprintView} />}
+      {screen==='draw'      && <DrawScreen      ref={drawScreenRef} image={image} fracPerFt={fracPerFt} aspectRatio={aspectRatio} rooms={rooms} jobName={jobName} onAddRoom={r=>setRooms(p=>[...p,r])} onRemoveRoom={id=>setRooms(p=>p.filter(r=>r.id!==id))} onUpdateRoom={(id,patch)=>setRooms(p=>p.map(r=>r.id===id?{...r,...patch}:r))} onFinish={()=>setScreen('results')} labelSizeInches={labelSizeInches} setLabelSizeInches={setLabelSizeInches} blueprintView={blueprintView} setBlueprintView={setBlueprintView} />}
       {screen==='results'   && <ResultsScreen   ref={resultsScreenRef} image={image} rooms={rooms} jobName={jobName} setJobName={setJobName} fracPerFt={fracPerFt} aspectRatio={aspectRatio} labelSizeInches={labelSizeInches} miscItems={miscItems} setMiscItems={setMiscItems} reportSaved={reportSaved} onDirty={()=>setReportSaved(false)} onReset={reset} onEdit={()=>setScreen('draw')} onSaved={()=>{ setReportSaved(true); setHasSavedOnce(true) }} />}
       {unsavedWarning && (
         <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.45)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:100,padding:20}}
