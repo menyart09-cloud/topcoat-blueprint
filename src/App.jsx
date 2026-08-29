@@ -1779,7 +1779,7 @@ const DrawScreen = React.forwardRef(function DrawScreen({ image, fracPerFt, aspe
               const sqftFS = inchesToFontSize(labelInches.sqft, fracPerFt, imgSize.w||400)
               const wallFS = inchesToFontSize(labelInches.wall, fracPerFt, imgSize.w||400)
               return (
-                <g key={`${room.id}-${labelSizeInches}`}>
+                <g key={room.id}>
                   <polygon points={toSvgPoints(room.points, imgSize.w, imgSize.h)} fill={(room.color||ROOM_COLORS[0]).fill} stroke="none"/>
                   {fracPerFt && room.points.map((a, i) => {
                     const b = room.points[(i+1) % room.points.length]
@@ -2427,7 +2427,7 @@ const ResultsScreen = React.forwardRef(function ResultsScreen({ image, rooms, jo
               const sqftFS = inchesToFontSize(labelInches.sqft, fracPerFt, imgSize.w||400)
               const wallFS = inchesToFontSize(labelInches.wall, fracPerFt, imgSize.w||400)
               return (
-              <g key={`${room.id}-${labelSizeInches}`}>
+              <g key={room.id}>
                 <polygon points={toSvgPoints(room.points,imgSize.w,imgSize.h)} fill={(room.color||ROOM_COLORS[0]).fill} stroke={(room.color||ROOM_COLORS[0]).border} strokeWidth="2"/>
                 {fracPerFt && room.points.map((a, i) => {
                   const b = room.points[(i+1) % room.points.length]
