@@ -1779,7 +1779,7 @@ const DrawScreen = React.forwardRef(function DrawScreen({ image, fracPerFt, aspe
               const sqftFS = inchesToFontSize(labelInches.sqft, fracPerFt, imgSize.w||400)
               const wallFS = inchesToFontSize(labelInches.wall, fracPerFt, imgSize.w||400)
               return (
-                <g key={room.id}>
+                <g key={`${room.id}-ls${labelSizeInches}`}>
                   <polygon points={toSvgPoints(room.points, imgSize.w, imgSize.h)} fill={(room.color||ROOM_COLORS[0]).fill} stroke="none"/>
                   {fracPerFt && room.points.map((a, i) => {
                     const b = room.points[(i+1) % room.points.length]
@@ -1790,25 +1790,22 @@ const DrawScreen = React.forwardRef(function DrawScreen({ image, fracPerFt, aspe
                     const ly = midY + (c.y - midY) * 0.05
                     const lpx = lx * imgSize.w, lpy = ly * imgSize.h
                     return (
-                      <text key={`wall-${room.id}-${i}`} x={lpx} y={lpy}
-                        transform={`translate(${lpx} ${lpy}) scale(${wallFS/LABEL_BASE_PX}) translate(${-lpx} ${-lpy})`}
-                        textAnchor="middle" dominantBaseline="middle" fill="#000" fontSize={LABEL_BASE_PX} fontWeight="400"
-                        style={{filter:'drop-shadow(0 0 2px rgba(255,255,255,0.9))'}}>
+                      <text key={`wall-${room.id}-${i}-ls${labelSizeInches}`} x={lpx} y={lpy}
+                        textAnchor="middle" dominantBaseline="middle" fill="#000" fontSize={wallFS} fontWeight="400"
+                        style={{filter:'drop-shadow(0 0 2px rgba(255,255,255,0.9))', WebkitTextSizeAdjust:'none', textSizeAdjust:'none'}}>
                         {feetInchesLabel(lenFt)}
                       </text>
                     )
                   })}
                   {(() => { const cpx = c.x*imgSize.w, cpy = c.y*imgSize.h; return (<>
                   <text x={cpx} y={cpy}
-                    transform={`translate(${cpx} ${cpy}) scale(${nameFS/LABEL_BASE_PX}) translate(${-cpx} ${-cpy})`}
-                    textAnchor="middle" dominantBaseline="middle" fill="#fff" fontSize={LABEL_BASE_PX} fontWeight="800"
-                    style={{filter:'drop-shadow(0 1px 2px rgba(0,0,0,0.8))'}}>
+                    textAnchor="middle" dominantBaseline="middle" fill="#fff" fontSize={nameFS} fontWeight="800"
+                    style={{filter:'drop-shadow(0 1px 2px rgba(0,0,0,0.8))', WebkitTextSizeAdjust:'none', textSizeAdjust:'none'}}>
                     {room.name}
                   </text>
                   <text x={cpx} y={cpy + nameFS*0.9}
-                    transform={`translate(${cpx} ${cpy + nameFS*0.9}) scale(${sqftFS/LABEL_BASE_PX}) translate(${-cpx} ${-(cpy + nameFS*0.9)})`}
-                    textAnchor="middle" dominantBaseline="middle" fill="rgba(255,255,255,0.9)" fontSize={LABEL_BASE_PX} fontWeight="600"
-                    style={{filter:'drop-shadow(0 1px 2px rgba(0,0,0,0.8))'}}>
+                    textAnchor="middle" dominantBaseline="middle" fill="rgba(255,255,255,0.9)" fontSize={sqftFS} fontWeight="600"
+                    style={{filter:'drop-shadow(0 1px 2px rgba(0,0,0,0.8))', WebkitTextSizeAdjust:'none', textSizeAdjust:'none'}}>
                     {room.sqft.toLocaleString()} sf
                   </text>
                   </>)})()}
@@ -2438,25 +2435,22 @@ const ResultsScreen = React.forwardRef(function ResultsScreen({ image, rooms, jo
                   const ly = midY + (c.y - midY) * 0.05
                   const lpx = lx * imgSize.w, lpy = ly * imgSize.h
                   return (
-                    <text key={`wall-${room.id}-${i}`} x={lpx} y={lpy}
-                      transform={`translate(${lpx} ${lpy}) scale(${wallFS/LABEL_BASE_PX}) translate(${-lpx} ${-lpy})`}
-                      textAnchor="middle" dominantBaseline="middle" fill="#000" fontSize={LABEL_BASE_PX} fontWeight="400"
-                      style={{filter:'drop-shadow(0 0 2px rgba(255,255,255,0.9))'}}>
+                    <text key={`wall-${room.id}-${i}-ls${labelSizeInches}`} x={lpx} y={lpy}
+                      textAnchor="middle" dominantBaseline="middle" fill="#000" fontSize={wallFS} fontWeight="400"
+                      style={{filter:'drop-shadow(0 0 2px rgba(255,255,255,0.9))', WebkitTextSizeAdjust:'none', textSizeAdjust:'none'}}>
                       {feetInchesLabel(lenFt)}
                     </text>
                   )
                 })}
                 {(() => { const cpx = c.x*imgSize.w, cpy = c.y*imgSize.h; return (<>
                 <text x={cpx} y={cpy}
-                  transform={`translate(${cpx} ${cpy}) scale(${nameFS/LABEL_BASE_PX}) translate(${-cpx} ${-cpy})`}
-                  textAnchor="middle" dominantBaseline="middle" fill="#fff" fontSize={LABEL_BASE_PX} fontWeight="800"
-                  style={{filter:'drop-shadow(0 1px 3px rgba(0,0,0,0.9))'}}>
+                  textAnchor="middle" dominantBaseline="middle" fill="#fff" fontSize={nameFS} fontWeight="800"
+                  style={{filter:'drop-shadow(0 1px 3px rgba(0,0,0,0.9))', WebkitTextSizeAdjust:'none', textSizeAdjust:'none'}}>
                   {room.name}
                 </text>
                 <text x={cpx} y={cpy + nameFS*0.9}
-                  transform={`translate(${cpx} ${cpy + nameFS*0.9}) scale(${sqftFS/LABEL_BASE_PX}) translate(${-cpx} ${-(cpy + nameFS*0.9)})`}
-                  textAnchor="middle" dominantBaseline="middle" fill="rgba(255,255,255,0.9)" fontSize={LABEL_BASE_PX} fontWeight="600"
-                  style={{filter:'drop-shadow(0 1px 3px rgba(0,0,0,0.9))'}}>
+                  textAnchor="middle" dominantBaseline="middle" fill="rgba(255,255,255,0.9)" fontSize={sqftFS} fontWeight="600"
+                  style={{filter:'drop-shadow(0 1px 3px rgba(0,0,0,0.9))', WebkitTextSizeAdjust:'none', textSizeAdjust:'none'}}>
                   {room.sqft.toLocaleString()} sf
                 </text>
                 </>)})()}
