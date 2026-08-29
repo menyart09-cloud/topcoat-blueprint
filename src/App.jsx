@@ -1687,7 +1687,6 @@ const DrawScreen = React.forwardRef(function DrawScreen({ image, fracPerFt, aspe
   }))
 
   const [imgSize, setImgSize] = useState({ w: 300, h: 400 })
-  const [debugTapCount, setDebugTapCount] = useState(0) // TEMPORARY — remove once label-size issue is diagnosed
   useEffect(() => {
     const update = () => { if (imgRef.current) setImgSize({ w: imgRef.current.clientWidth, h: imgRef.current.clientHeight }) }
     update()
@@ -1797,9 +1796,22 @@ const DrawScreen = React.forwardRef(function DrawScreen({ image, fracPerFt, aspe
                     const lx = midX + (c.x - midX) * 0.05
                     const ly = midY + (c.y - midY) * 0.05
                     const lpx = lx * imgSize.w, lpy = ly * imgSize.h
+                    // Rotate the label to run along the wall it's measuring
+                    // (standard architectural convention), computed in the
+                    // same pixel space the label is drawn in — not
+                    // real-world feet — since this is a purely visual
+                    // alignment, not a distance calculation. Normalized to
+                    // stay within ±90° of upright so text never renders
+                    // upside-down or backwards, regardless of which
+                    // direction the wall's two corners happen to be
+                    // ordered in.
+                    const apx = a.x*imgSize.w, apy = a.y*imgSize.h, bpx = b.x*imgSize.w, bpy = b.y*imgSize.h
+                    let wallAngle = Math.atan2(bpy-apy, bpx-apx) * 180/Math.PI
+                    if (wallAngle > 90) wallAngle -= 180
+                    if (wallAngle < -90) wallAngle += 180
                     return (
                       <text key={`wall-${room.id}-${i}`} x={lpx} y={lpy}
-                        transform={`translate(${lpx} ${lpy}) scale(${wallFS/LABEL_BASE_PX}) translate(${-lpx} ${-lpy})`}
+                        transform={`rotate(${wallAngle} ${lpx} ${lpy}) translate(${lpx} ${lpy}) scale(${wallFS/LABEL_BASE_PX}) translate(${-lpx} ${-lpy})`}
                         textAnchor="middle" dominantBaseline="middle" fill="#000" fontSize={LABEL_BASE_PX} fontWeight="400"
                         style={{filter:'drop-shadow(0 0 2px rgba(255,255,255,0.9))'}}>
                         {feetInchesLabel(lenFt)}
@@ -1888,27 +1900,14 @@ const DrawScreen = React.forwardRef(function DrawScreen({ image, fracPerFt, aspe
               <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,padding:'8px 10px',background:'#fff',border:'1px solid #e0e0e0',borderRadius:8,marginBottom:8}}>
                 <span style={{fontSize:13,fontWeight:600,color:'#333'}}>Label Size</span>
                 <div style={{display:'flex',alignItems:'center',gap:6}}>
-                  <button onClick={()=>{ setDebugTapCount(c=>c+1); setLabelSizeInches(v=>Math.max(1, Math.round((v-0.5)*10)/10)) }}
+                  <button onClick={()=>setLabelSizeInches(v=>Math.max(1, Math.round((v-0.5)*10)/10))}
                     style={{width:26,height:26,borderRadius:6,border:`1.5px solid ${ORANGE}`,background:'#fff',color:ORANGE,fontSize:14,fontWeight:700,cursor:'pointer'}}>–</button>
                   <div style={{width:52,height:26,border:'1.5px solid #ddd',borderRadius:6,display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,fontWeight:600,background:'#fff'}}>
                     {labelSizeInches}"
                   </div>
-                  <button onClick={()=>{ setDebugTapCount(c=>c+1); setLabelSizeInches(v=>Math.min(24, Math.round((v+0.5)*10)/10)) }}
+                  <button onClick={()=>setLabelSizeInches(v=>Math.min(24, Math.round((v+0.5)*10)/10))}
                     style={{width:26,height:26,borderRadius:6,border:`1.5px solid ${ORANGE}`,background:'#fff',color:ORANGE,fontSize:14,fontWeight:700,cursor:'pointer'}}>+</button>
                 </div>
-              </div>
-              <div style={{padding:'8px 10px',background:'#fff3e0',border:'1.5px dashed #e65100',borderRadius:8,marginBottom:8,fontSize:11,fontFamily:'monospace',color:'#5d4037',lineHeight:1.6}}>
-                <div style={{fontWeight:700,marginBottom:2}}>⚠️ TEMPORARY DEBUG — screenshot this</div>
-                <div>Taps registered: <b>{debugTapCount}</b></div>
-                <div>labelSizeInches state: <b>{labelSizeInches}</b></div>
-                <div>Base wall/name/sqft (in): <b>{(() => { const li = getLabelInches(labelSizeInches); return `${li.wall.toFixed(2)} / ${li.name.toFixed(2)} / ${li.sqft.toFixed(2)}` })()}</b></div>
-                {rooms[0] && <div>Room[0] name transform: <b style={{wordBreak:'break-all'}}>{(() => {
-                  const c = centroid(rooms[0].points)
-                  const cpx = c.x*imgSize.w, cpy = c.y*imgSize.h
-                  const labelInches = getLabelInches(labelSizeInches)
-                  const nameFS = inchesToFontSize(labelInches.name, fracPerFt, imgSize.w||400)
-                  return `scale(${(nameFS/LABEL_BASE_PX).toFixed(4)}) @ (${cpx.toFixed(0)},${cpy.toFixed(0)})`
-                })()}</b></div>}
               </div>
               <div style={{maxHeight:160,overflowY:'auto',marginBottom:8,WebkitOverflowScrolling:'touch'}}>
                 {rooms.map(room => (
@@ -2458,9 +2457,13 @@ const ResultsScreen = React.forwardRef(function ResultsScreen({ image, rooms, jo
                   const lx = midX + (c.x - midX) * 0.05
                   const ly = midY + (c.y - midY) * 0.05
                   const lpx = lx * imgSize.w, lpy = ly * imgSize.h
+                  const apx = a.x*imgSize.w, apy = a.y*imgSize.h, bpx = b.x*imgSize.w, bpy = b.y*imgSize.h
+                  let wallAngle = Math.atan2(bpy-apy, bpx-apx) * 180/Math.PI
+                  if (wallAngle > 90) wallAngle -= 180
+                  if (wallAngle < -90) wallAngle += 180
                   return (
                     <text key={`wall-${room.id}-${i}`} x={lpx} y={lpy}
-                      transform={`translate(${lpx} ${lpy}) scale(${wallFS/LABEL_BASE_PX}) translate(${-lpx} ${-lpy})`}
+                      transform={`rotate(${wallAngle} ${lpx} ${lpy}) translate(${lpx} ${lpy}) scale(${wallFS/LABEL_BASE_PX}) translate(${-lpx} ${-lpy})`}
                       textAnchor="middle" dominantBaseline="middle" fill="#000" fontSize={LABEL_BASE_PX} fontWeight="400"
                       style={{filter:'drop-shadow(0 0 2px rgba(255,255,255,0.9))'}}>
                       {feetInchesLabel(lenFt)}
