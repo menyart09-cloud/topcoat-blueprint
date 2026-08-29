@@ -266,7 +266,14 @@ const SQFT_TO_WALL_RATIO = 4.2 / 3.5
 function inchesToFontSize(inches, fracPerFt, imgWpx) {
   if (!fracPerFt) return 12
   const frac = (inches / 12) * fracPerFt
-  return Math.max(frac * imgWpx, 4)
+  // This floor used to be 4, back when this value WAS the literal on-screen
+  // font-size. Now it's only an input to a transform:scale() factor (see
+  // LABEL_BASE_PX below), so a floor that high silently clamped every
+  // Label Size setting to the identical result on jobs with a small
+  // fracPerFt (wide-scale blueprints) — the actual root cause of Label
+  // Size appearing completely unresponsive on some jobs. Only guard
+  // against exactly zero/negative here, not against small-but-real values.
+  return Math.max(frac * imgWpx, 0.3)
 }
 
 // Room labels are rendered at this FIXED font-size, with the actual
@@ -1899,7 +1906,7 @@ const DrawScreen = React.forwardRef(function DrawScreen({ image, fracPerFt, aspe
                   const c = centroid(rooms[0].points)
                   const cpx = c.x*imgSize.w, cpy = c.y*imgSize.h
                   const labelInches = getLabelInches(labelSizeInches)
-                  const nameFS = inchesToFontSize(labelInches.name, fracPerFt, imgSize.w)
+                  const nameFS = inchesToFontSize(labelInches.name, fracPerFt, imgSize.w||400)
                   return `scale(${(nameFS/LABEL_BASE_PX).toFixed(4)}) @ (${cpx.toFixed(0)},${cpy.toFixed(0)})`
                 })()}</b></div>}
               </div>
