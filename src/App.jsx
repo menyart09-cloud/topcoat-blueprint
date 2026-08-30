@@ -1168,19 +1168,35 @@ function PdfPageScreen({ thumbnails, buffer, pdfName, pdfSize, jobName, onImport
 // maintained ones.
 function CropScreen({ image, onDone, onSkip }) {
   const imgRef = useRef()
-  const stageRef = useRef()
+  const blueprintCtrlRef = useRef()
+  const overlayElRef = useRef() // shares position/size with ZoomableBlueprint's own container
+  const [imgSize, setImgSize] = useState({ w: 300, h: 400 })
   const [box, setBox] = useState({ x: 0.04, y: 0.04, w: 0.92, h: 0.92 })
   const boxRef = useRef(box)
   boxRef.current = box
   const activeHandle = useRef(null)
   const MIN_SIZE = 0.08
 
+  useEffect(() => {
+    const update = () => { if (imgRef.current) setImgSize({ w: imgRef.current.clientWidth, h: imgRef.current.clientHeight }) }
+    update()
+    window.addEventListener('resize', update)
+    return () => window.removeEventListener('resize', update)
+  }, [])
+
+  // Converts a pointer position into a fractional image coordinate,
+  // accounting for the current zoom/pan — the inverse of ZoomableBlueprint's
+  // own toScreen(). Needed because the crop handles must track correctly
+  // no matter how far the user has zoomed or panned to see part of a wide
+  // or tall blueprint that doesn't fit on screen at 1x.
   function clientToFraction(clientX, clientY) {
-    const rect = stageRef.current.getBoundingClientRect()
-    return {
-      x: Math.max(0, Math.min(1, (clientX - rect.left) / rect.width)),
-      y: Math.max(0, Math.min(1, (clientY - rect.top) / rect.height))
-    }
+    const view = blueprintCtrlRef.current?.getView()
+    const rect = overlayElRef.current?.getBoundingClientRect()
+    if (!view || !rect) return { x: 0, y: 0 }
+    const screenX = clientX - rect.left, screenY = clientY - rect.top
+    const fx = (screenX - view.panX) / (view.zoom * imgSize.w)
+    const fy = (screenY - view.panY) / (view.zoom * imgSize.h)
+    return { x: Math.max(0, Math.min(1, fx)), y: Math.max(0, Math.min(1, fy)) }
   }
 
   function onHandleDown(handle, e) {
@@ -1226,40 +1242,50 @@ function CropScreen({ image, onDone, onSkip }) {
 
   const handles = ['tl', 'tr', 'bl', 'br']
   return (
-    <div style={{display:'flex',flexDirection:'column',height:'100%'}}>
+    <div style={{display:'flex',flexDirection:'column',height:'calc(100vh - 60px)'}}>
       <div style={{padding:'10px 14px',background:'#5b3fa8',color:'#fff',fontSize:14,fontWeight:600,display:'flex',alignItems:'center',gap:8,flexShrink:0}}>
-        ✂️ CROP — drag corners to trim the photo
+        ✂️ CROP — pinch to zoom, drag corners to trim the photo
       </div>
-      <div ref={stageRef} style={{position:'relative',flex:1,minHeight:0,maxHeight:'60vh',overflow:'hidden',background:'#111',touchAction:'none'}}>
-        <img ref={imgRef} src={image.src} alt="Blueprint" style={{width:'100%',display:'block',userSelect:'none'}} draggable={false} />
-        <svg style={{position:'absolute',inset:0,width:'100%',height:'100%',pointerEvents:'none'}}>
-          <defs>
-            <mask id="cropmask">
-              <rect x="0" y="0" width="100%" height="100%" fill="#fff"/>
-              <rect x={`${box.x*100}%`} y={`${box.y*100}%`} width={`${box.w*100}%`} height={`${box.h*100}%`} fill="#000"/>
-            </mask>
-          </defs>
-          <rect x="0" y="0" width="100%" height="100%" fill="rgba(0,0,0,0.55)" mask="url(#cropmask)"/>
-          <rect x={`${box.x*100}%`} y={`${box.y*100}%`} width={`${box.w*100}%`} height={`${box.h*100}%`} fill="none" stroke="#fff" strokeWidth="2"/>
-        </svg>
-        {handles.map(h => {
-          const hx = h.includes('l') ? box.x : box.x + box.w
-          const hy = h.includes('t') ? box.y : box.y + box.h
+      <ZoomableBlueprint ref={blueprintCtrlRef} style={{flex:1,minHeight:0,maxHeight:'60vh'}}
+        renderOverlay={toScreen => {
+          const tl = toScreen(box.x, box.y, imgSize.w, imgSize.h)
+          const br = toScreen(box.x+box.w, box.y+box.h, imgSize.w, imgSize.h)
+          const cropW = br.x - tl.x, cropH = br.y - tl.y
           return (
-            <div key={h}
-              onPointerDown={e => onHandleDown(h, e)}
-              onPointerMove={e => onHandleMove(h, e)}
-              onPointerUp={e => onHandleUp(h, e)}
-              onPointerCancel={e => onHandleUp(h, e)}
-              style={{
-                position: 'absolute', left: `${hx*100}%`, top: `${hy*100}%`,
-                width: 36, height: 36, marginLeft: -18, marginTop: -18,
-                borderRadius: '50%', background: '#fff', border: '3px solid #5b3fa8',
-                touchAction: 'none', cursor: 'grab', boxSizing: 'border-box'
-              }} />
+            <div ref={overlayElRef} style={{position:'absolute', inset:0}}>
+              <svg style={{position:'absolute', inset:0, width:'100%', height:'100%'}}>
+                <defs>
+                  <mask id="cropmask">
+                    <rect x="0" y="0" width="100%" height="100%" fill="#fff"/>
+                    <rect x={tl.x} y={tl.y} width={cropW} height={cropH} fill="#000"/>
+                  </mask>
+                </defs>
+                <rect x="0" y="0" width="100%" height="100%" fill="rgba(0,0,0,0.55)" mask="url(#cropmask)"/>
+                <rect x={tl.x} y={tl.y} width={cropW} height={cropH} fill="none" stroke="#fff" strokeWidth="2"/>
+              </svg>
+              {handles.map(h => {
+                const hx = h.includes('l') ? tl.x : br.x
+                const hy = h.includes('t') ? tl.y : br.y
+                return (
+                  <div key={h}
+                    onPointerDown={e => onHandleDown(h, e)}
+                    onPointerMove={e => onHandleMove(h, e)}
+                    onPointerUp={e => onHandleUp(h, e)}
+                    onPointerCancel={e => onHandleUp(h, e)}
+                    style={{
+                      position: 'absolute', left: hx, top: hy,
+                      width: 36, height: 36, marginLeft: -18, marginTop: -18,
+                      borderRadius: '50%', background: '#fff', border: '3px solid #5b3fa8',
+                      touchAction: 'none', cursor: 'grab', boxSizing: 'border-box',
+                      pointerEvents: 'auto'
+                    }} />
+                )
+              })}
+            </div>
           )
-        })}
-      </div>
+        }}>
+        <img ref={imgRef} src={image.src} alt="Blueprint" style={{width:'100%',display:'block',userSelect:'none'}} draggable={false} />
+      </ZoomableBlueprint>
       <div style={{display:'flex',gap:10,padding:'12px 14px',flexShrink:0}}>
         <button onClick={onSkip}
           style={{flex:1,padding:'13px',border:`2px solid ${ORANGE}`,color:ORANGE,background:'#fff',borderRadius:8,fontSize:15,fontWeight:700,cursor:'pointer'}}>
