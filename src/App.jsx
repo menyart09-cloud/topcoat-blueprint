@@ -1246,7 +1246,7 @@ function CropScreen({ image, onDone, onSkip }) {
       <div style={{padding:'10px 14px',background:'#5b3fa8',color:'#fff',fontSize:14,fontWeight:600,display:'flex',alignItems:'center',gap:8,flexShrink:0}}>
         ✂️ CROP — pinch to zoom, drag corners to trim the photo
       </div>
-      <ZoomableBlueprint ref={blueprintCtrlRef} style={{flex:1,minHeight:0,maxHeight:'60vh'}}
+      <ZoomableBlueprint ref={blueprintCtrlRef} style={{height:'auto',minHeight:0,maxHeight:'75vh',maxWidth:560,width:'100%',margin:'0 auto',aspectRatio:imgSize.w&&imgSize.h?`${imgSize.w} / ${imgSize.h}`:'4 / 3'}}
         renderOverlay={toScreen => {
           const tl = toScreen(box.x, box.y, imgSize.w, imgSize.h)
           const br = toScreen(box.x+box.w, box.y+box.h, imgSize.w, imgSize.h)
@@ -1365,7 +1365,7 @@ function StraightenScreen({ image, onDone, onSkip, onRotate, blueprintView, setB
         </button>
       </div>
 
-      <ZoomableBlueprint onTap={handleTap} style={{flex:1,minHeight:0,maxHeight:'60vh'}} onZoomChange={setZoomLevel}
+      <ZoomableBlueprint onTap={handleTap} style={{flex:1,minHeight:0,maxHeight:'75vh',maxWidth:560,width:'100%',margin:'0 auto'}} onZoomChange={setZoomLevel}
         initialView={blueprintView} onViewChange={setBlueprintView}
         renderOverlay={toScreen => (
           <>
@@ -1436,6 +1436,13 @@ function CalibrateScreen({ image, jobName, onDone, blueprintView, setBlueprintVi
   const [knownFt, setKnownFt] = useState('')
   const [zoomLevel, setZoomLevel] = useState(1)
   const imgRef = useRef()
+  const [imgSize, setImgSize] = useState({ w: 0, h: 0 })
+  useEffect(() => {
+    const update = () => { if (imgRef.current) setImgSize({ w: imgRef.current.naturalWidth, h: imgRef.current.naturalHeight }) }
+    update()
+    window.addEventListener('resize', update)
+    return () => window.removeEventListener('resize', update)
+  }, [])
 
   function handleTap(e) {
     if (points.length >= 2) { setPoints([]); return }
@@ -1492,7 +1499,7 @@ function CalibrateScreen({ image, jobName, onDone, blueprintView, setBlueprintVi
       </div>
 
       {/* Zoomable blueprint - max height */}
-      <ZoomableBlueprint onTap={handleTap} style={{flex:1,minHeight:0,maxHeight:'60vh'}} onZoomChange={setZoomLevel}
+      <ZoomableBlueprint onTap={handleTap} style={{height:'auto',minHeight:0,maxHeight:'75vh',maxWidth:560,width:'100%',margin:'0 auto',aspectRatio:imgSize.w&&imgSize.h?`${imgSize.w} / ${imgSize.h}`:'4 / 3'}} onZoomChange={setZoomLevel}
         initialView={blueprintView} onViewChange={setBlueprintView}
         renderOverlay={toScreen => (
           <>
@@ -1503,7 +1510,7 @@ function CalibrateScreen({ image, jobName, onDone, blueprintView, setBlueprintVi
           </>
         )}>
         <div style={{position:'relative'}}>
-          <img ref={imgRef} src={image.src} alt="Blueprint"
+          <img ref={imgRef} src={image.src} alt="Blueprint" onLoad={e => setImgSize({ w: e.target.naturalWidth, h: e.target.naturalHeight })}
             style={{width:'100%',display:'block',userSelect:'none'}} draggable={false} />
         </div>
       </ZoomableBlueprint>
@@ -1891,7 +1898,7 @@ const DrawScreen = React.forwardRef(function DrawScreen({ image, fracPerFt, aspe
       </div>
 
       {/* Zoomable pinch-to-zoom drawing area - fills all available space */}
-      <ZoomableBlueprint ref={blueprintCtrlRef} onTap={e=>{if(!naming&&!identifying)handleTap(e)}} style={{flex:1,maxHeight:'none',minHeight:0}} onZoomChange={setZoomLevel}
+      <ZoomableBlueprint ref={blueprintCtrlRef} onTap={e=>{if(!naming&&!identifying)handleTap(e)}} style={{flex:1,maxHeight:'none',minHeight:0,maxWidth:560,width:'100%',margin:'0 auto'}} onZoomChange={setZoomLevel}
         initialView={blueprintView} onViewChange={setBlueprintView}
         renderOverlay={toScreen => (
           <>
