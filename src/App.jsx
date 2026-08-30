@@ -311,9 +311,18 @@ async function ensurePdfJs() {
     'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'
 }
 
-// ── Render one page of a loaded pdf.js document to a data URL ──
-async function renderPdfPageToDataUrl(pdfDoc, pageNum, scale, quality = 0.95) {
+// ── Render one page of a loaded pdf.js document to a data URL.
+// maxDimension caps the longest output side — large architectural
+// sheets (e.g. 36"x24" at high scale) were rendering to 40+ megapixel
+// canvases with a fixed scale multiplier, which is far more detail
+// than tracing ever needs and a real risk on memory-constrained
+// devices. Scale is computed per-page so a small sheet still renders
+// at full quality (never upscaled) while a large one gets capped. ──
+async function renderPdfPageToDataUrl(pdfDoc, pageNum, maxDimension, quality = 0.95) {
   const page = await pdfDoc.getPage(pageNum)
+  const baseViewport = page.getViewport({ scale: 1.0 })
+  const longestSide = Math.max(baseViewport.width, baseViewport.height)
+  const scale = Math.min(3.0, maxDimension / longestSide)
   const viewport = page.getViewport({ scale })
   const canvas = document.createElement('canvas')
   canvas.width = viewport.width
@@ -339,13 +348,13 @@ async function pdfFileToPageInfo(file, onProgress) {
   const pdfDoc = await window.pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer.slice(0)) }).promise
 
   if (pdfDoc.numPages <= 1) {
-    const dataUrl = await renderPdfPageToDataUrl(pdfDoc, 1, 3.0, 0.95)
+    const dataUrl = await renderPdfPageToDataUrl(pdfDoc, 1, 3200, 0.95)
     return { single: true, src: dataUrl, base64: dataUrl.split(',')[1], mime: 'image/jpeg', name: file.name, size: file.size, fromPdf: true }
   }
 
   const thumbnails = []
   for (let p = 1; p <= pdfDoc.numPages; p++) {
-    const thumb = await renderPdfPageToDataUrl(pdfDoc, p, 0.35, 0.7)
+    const thumb = await renderPdfPageToDataUrl(pdfDoc, p, 500, 0.7)
     thumbnails.push({ pageNum: p, thumb })
     if (onProgress) onProgress(p, pdfDoc.numPages)
   }
@@ -357,7 +366,7 @@ async function pdfFileToPageInfo(file, onProgress) {
 async function renderFullPdfPage(arrayBuffer, pageNum) {
   await ensurePdfJs()
   const pdfDoc = await window.pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer.slice(0)) }).promise
-  const dataUrl = await renderPdfPageToDataUrl(pdfDoc, pageNum, 3.0, 0.95)
+  const dataUrl = await renderPdfPageToDataUrl(pdfDoc, pageNum, 3200, 0.95)
   return { src: dataUrl, base64: dataUrl.split(',')[1] }
 }
 
@@ -1246,7 +1255,7 @@ function CropScreen({ image, onDone, onSkip }) {
       <div style={{padding:'10px 14px',background:'#5b3fa8',color:'#fff',fontSize:14,fontWeight:600,display:'flex',alignItems:'center',gap:8,flexShrink:0}}>
         ✂️ CROP — pinch to zoom, drag corners to trim the photo
       </div>
-      <ZoomableBlueprint ref={blueprintCtrlRef} style={{height:'auto',minHeight:0,maxHeight:'75vh',maxWidth:560,width:'100%',margin:'0 auto',aspectRatio:imgSize.w&&imgSize.h?`${imgSize.w} / ${imgSize.h}`:'4 / 3'}}
+      <ZoomableBlueprint ref={blueprintCtrlRef} style={{height:'auto',minHeight:0,maxHeight:'75vh',maxWidth:1000,width:'100%',margin:'0 auto',aspectRatio:imgSize.w&&imgSize.h?`${imgSize.w} / ${imgSize.h}`:'4 / 3'}}
         renderOverlay={toScreen => {
           const tl = toScreen(box.x, box.y, imgSize.w, imgSize.h)
           const br = toScreen(box.x+box.w, box.y+box.h, imgSize.w, imgSize.h)
@@ -1365,7 +1374,7 @@ function StraightenScreen({ image, onDone, onSkip, onRotate, blueprintView, setB
         </button>
       </div>
 
-      <ZoomableBlueprint onTap={handleTap} style={{flex:1,minHeight:0,maxHeight:'75vh',maxWidth:560,width:'100%',margin:'0 auto'}} onZoomChange={setZoomLevel}
+      <ZoomableBlueprint onTap={handleTap} style={{flex:1,minHeight:0,maxHeight:'75vh',maxWidth:1000,width:'100%',margin:'0 auto'}} onZoomChange={setZoomLevel}
         initialView={blueprintView} onViewChange={setBlueprintView}
         renderOverlay={toScreen => (
           <>
@@ -1499,7 +1508,7 @@ function CalibrateScreen({ image, jobName, onDone, blueprintView, setBlueprintVi
       </div>
 
       {/* Zoomable blueprint - max height */}
-      <ZoomableBlueprint onTap={handleTap} style={{height:'auto',minHeight:0,maxHeight:'75vh',maxWidth:560,width:'100%',margin:'0 auto',aspectRatio:imgSize.w&&imgSize.h?`${imgSize.w} / ${imgSize.h}`:'4 / 3'}} onZoomChange={setZoomLevel}
+      <ZoomableBlueprint onTap={handleTap} style={{height:'auto',minHeight:0,maxHeight:'75vh',maxWidth:1000,width:'100%',margin:'0 auto',aspectRatio:imgSize.w&&imgSize.h?`${imgSize.w} / ${imgSize.h}`:'4 / 3'}} onZoomChange={setZoomLevel}
         initialView={blueprintView} onViewChange={setBlueprintView}
         renderOverlay={toScreen => (
           <>
@@ -1898,7 +1907,7 @@ const DrawScreen = React.forwardRef(function DrawScreen({ image, fracPerFt, aspe
       </div>
 
       {/* Zoomable pinch-to-zoom drawing area - fills all available space */}
-      <ZoomableBlueprint ref={blueprintCtrlRef} onTap={e=>{if(!naming&&!identifying)handleTap(e)}} style={{flex:1,maxHeight:'none',minHeight:0,maxWidth:560,width:'100%',margin:'0 auto'}} onZoomChange={setZoomLevel}
+      <ZoomableBlueprint ref={blueprintCtrlRef} onTap={e=>{if(!naming&&!identifying)handleTap(e)}} style={{flex:1,maxHeight:'none',minHeight:0,maxWidth:1000,width:'100%',margin:'0 auto'}} onZoomChange={setZoomLevel}
         initialView={blueprintView} onViewChange={setBlueprintView}
         renderOverlay={toScreen => (
           <>
