@@ -868,7 +868,25 @@ const ZoomableBlueprint = React.forwardRef(function ZoomableBlueprint({ onTap, c
       const panY = containerSize.h / 2 - yAtZoom1 * z
       setView(z, panX, panY)
     },
-    getView() { return viewRef.current }
+    getView() { return viewRef.current },
+    nudge() {
+      // Forces a fresh repaint/re-composite of the transformed layer.
+      // Needed because some browsers don't reliably re-rasterize sharply
+      // when content changes INSIDE an already-transformed layer without
+      // the transform value itself changing (confirmed WebKit bug #27684
+      // — "composited elements appear pixelated when scaled up using
+      // transform" — plus a similar Chrome rasterization-caching
+      // behavior). An imperceptible, immediately-reverted pan change
+      // forces the browser to recognize "the transform changed" and
+      // re-render at full sharpness, without any visible jump.
+      const v = viewRef.current
+      viewRef.current = { ...v, panX: v.panX + 0.01 }
+      rerender()
+      requestAnimationFrame(() => {
+        viewRef.current = v
+        rerender()
+      })
+    }
   }))
 
   function onTouchStart(e) {
@@ -985,7 +1003,18 @@ const ZoomableBlueprint = React.forwardRef(function ZoomableBlueprint({ onTap, c
   const dragMoved  = useRef(false)
 
   function onMouseDown(e) {
-    if (e.button !== 0 || viewRef.current.zoom <= 1.01) return
+    if (e.button !== 0) return
+    // Only start a drag if there's actually somewhere to pan to — content
+    // taller or wider than the visible container right now. A fixed
+    // "zoom > 1.01" check incorrectly blocked panning on images that
+    // overflow vertically even at zoom=1 (e.g. a wide commercial floor
+    // plan with a tall notes section above it) while still correctly
+    // staying out of the way of ordinary corner-placement clicks when
+    // there's genuinely nothing to pan to.
+    const contentW = baseSize.w * viewRef.current.zoom
+    const contentH = baseSize.h * viewRef.current.zoom
+    const canPan = contentW > containerSize.w + 0.5 || contentH > containerSize.h + 0.5
+    if (!canPan) return
     isDragging.current = true
     dragMoved.current = false
     lastMouse.current = { x: e.clientX, y: e.clientY }
@@ -1014,7 +1043,7 @@ const ZoomableBlueprint = React.forwardRef(function ZoomableBlueprint({ onTap, c
         overflow: 'hidden',
         background: '#111',
         position: 'relative',
-        cursor: view.zoom > 1.01 ? 'grab' : 'crosshair',
+        cursor: (baseSize.w*view.zoom > containerSize.w+0.5 || baseSize.h*view.zoom > containerSize.h+0.5) ? 'grab' : 'crosshair',
         touchAction: 'none', // we handle all pan/zoom ourselves now — no native scroll involved at all
         height: '100%',
         width: '100%'
@@ -1033,7 +1062,7 @@ const ZoomableBlueprint = React.forwardRef(function ZoomableBlueprint({ onTap, c
       }}
     >
       <div ref={contentRef} style={{
-        transform: `translate(${view.panX}px, ${view.panY}px) scale(${view.zoom})`,
+        transform: `translate(${view.panX}px, ${view.panY}px) scale(${view.zoom}) translateZ(0)`,
         transformOrigin: 'top left',
         transition: 'none',
         position: 'absolute',
@@ -1129,6 +1158,122 @@ function PdfPageScreen({ thumbnails, buffer, pdfName, pdfSize, jobName, onImport
 // Optional. Tap two points along a line that should be level (e.g. a
 // wall edge), and the photo gets rotated so that line runs horizontal.
 // Skippable — most uploads (especially PDFs) won't need this.
+// Lets the user trim the photo down to just the floor plan before
+// straightening/calibrating — extraneous content (notes sections, title
+// blocks, legends) otherwise shares the same calibrated scale as the
+// actual floor plan, wasting effective precision on pixels that were
+// never going to be traced anyway. Crop box is tracked as a fraction of
+// the image (0-1), independent of display size, using pointer events so
+// mouse and touch share one code path rather than two separately
+// maintained ones.
+function CropScreen({ image, onDone, onSkip }) {
+  const imgRef = useRef()
+  const stageRef = useRef()
+  const [box, setBox] = useState({ x: 0.04, y: 0.04, w: 0.92, h: 0.92 })
+  const boxRef = useRef(box)
+  boxRef.current = box
+  const activeHandle = useRef(null)
+  const MIN_SIZE = 0.08
+
+  function clientToFraction(clientX, clientY) {
+    const rect = stageRef.current.getBoundingClientRect()
+    return {
+      x: Math.max(0, Math.min(1, (clientX - rect.left) / rect.width)),
+      y: Math.max(0, Math.min(1, (clientY - rect.top) / rect.height))
+    }
+  }
+
+  function onHandleDown(handle, e) {
+    e.currentTarget.setPointerCapture(e.pointerId)
+    activeHandle.current = handle
+  }
+
+  function onHandleMove(handle, e) {
+    if (activeHandle.current !== handle) return
+    e.preventDefault()
+    const { x, y } = clientToFraction(e.clientX, e.clientY)
+    const b = boxRef.current
+    let next = { ...b }
+    if (handle === 'tl') { next.w = b.x + b.w - x; next.h = b.y + b.h - y; next.x = x; next.y = y }
+    if (handle === 'tr') { next.w = x - b.x; next.h = b.y + b.h - y; next.y = y }
+    if (handle === 'bl') { next.w = b.x + b.w - x; next.x = x; next.h = y - b.y }
+    if (handle === 'br') { next.w = x - b.x; next.h = y - b.y }
+    if (next.w < MIN_SIZE) { if (handle === 'tl' || handle === 'bl') next.x = b.x + b.w - MIN_SIZE; next.w = MIN_SIZE }
+    if (next.h < MIN_SIZE) { if (handle === 'tl' || handle === 'tr') next.y = b.y + b.h - MIN_SIZE; next.h = MIN_SIZE }
+    next.x = Math.max(0, next.x); next.y = Math.max(0, next.y)
+    if (next.x + next.w > 1) next.w = 1 - next.x
+    if (next.y + next.h > 1) next.h = 1 - next.y
+    boxRef.current = next
+    setBox(next)
+  }
+
+  function onHandleUp(handle, e) {
+    if (activeHandle.current === handle) activeHandle.current = null
+  }
+
+  function handleCropContinue() {
+    const img = imgRef.current
+    const b = boxRef.current
+    const naturalW = img.naturalWidth, naturalH = img.naturalHeight
+    const sx = b.x * naturalW, sy = b.y * naturalH, sw = b.w * naturalW, sh = b.h * naturalH
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.round(sw); canvas.height = Math.round(sh)
+    const ctx = canvas.getContext('2d')
+    ctx.drawImage(img, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height)
+    const newSrc = canvas.toDataURL('image/jpeg', 0.92)
+    onDone({ src: newSrc, base64: newSrc.split(',')[1] })
+  }
+
+  const handles = ['tl', 'tr', 'bl', 'br']
+  return (
+    <div style={{display:'flex',flexDirection:'column',height:'100%'}}>
+      <div style={{padding:'10px 14px',background:'#5b3fa8',color:'#fff',fontSize:14,fontWeight:600,display:'flex',alignItems:'center',gap:8,flexShrink:0}}>
+        ✂️ CROP — drag corners to trim the photo
+      </div>
+      <div ref={stageRef} style={{position:'relative',flex:1,minHeight:0,maxHeight:'60vh',overflow:'hidden',background:'#111',touchAction:'none'}}>
+        <img ref={imgRef} src={image.src} alt="Blueprint" style={{width:'100%',display:'block',userSelect:'none'}} draggable={false} />
+        <svg style={{position:'absolute',inset:0,width:'100%',height:'100%',pointerEvents:'none'}}>
+          <defs>
+            <mask id="cropmask">
+              <rect x="0" y="0" width="100%" height="100%" fill="#fff"/>
+              <rect x={`${box.x*100}%`} y={`${box.y*100}%`} width={`${box.w*100}%`} height={`${box.h*100}%`} fill="#000"/>
+            </mask>
+          </defs>
+          <rect x="0" y="0" width="100%" height="100%" fill="rgba(0,0,0,0.55)" mask="url(#cropmask)"/>
+          <rect x={`${box.x*100}%`} y={`${box.y*100}%`} width={`${box.w*100}%`} height={`${box.h*100}%`} fill="none" stroke="#fff" strokeWidth="2"/>
+        </svg>
+        {handles.map(h => {
+          const hx = h.includes('l') ? box.x : box.x + box.w
+          const hy = h.includes('t') ? box.y : box.y + box.h
+          return (
+            <div key={h}
+              onPointerDown={e => onHandleDown(h, e)}
+              onPointerMove={e => onHandleMove(h, e)}
+              onPointerUp={e => onHandleUp(h, e)}
+              onPointerCancel={e => onHandleUp(h, e)}
+              style={{
+                position: 'absolute', left: `${hx*100}%`, top: `${hy*100}%`,
+                width: 36, height: 36, marginLeft: -18, marginTop: -18,
+                borderRadius: '50%', background: '#fff', border: '3px solid #5b3fa8',
+                touchAction: 'none', cursor: 'grab', boxSizing: 'border-box'
+              }} />
+          )
+        })}
+      </div>
+      <div style={{display:'flex',gap:10,padding:'12px 14px',flexShrink:0}}>
+        <button onClick={onSkip}
+          style={{flex:1,padding:'13px',border:`2px solid ${ORANGE}`,color:ORANGE,background:'#fff',borderRadius:8,fontSize:15,fontWeight:700,cursor:'pointer'}}>
+          Skip Crop →
+        </button>
+        <button onClick={handleCropContinue}
+          style={{flex:1,padding:'13px',background:ORANGE,color:'#fff',border:'none',borderRadius:8,fontSize:15,fontWeight:700,cursor:'pointer'}}>
+          Crop & Continue →
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function StraightenScreen({ image, onDone, onSkip, onRotate, blueprintView, setBlueprintView }) {
   const [points, setPoints]   = useState([])
   const [zoomLevel, setZoomLevel] = useState(1)
@@ -1634,6 +1779,9 @@ const DrawScreen = React.forwardRef(function DrawScreen({ image, fracPerFt, aspe
       })
       setPoints([]); setNaming(null); setCustomName('')
       setEditingRoomId(null); setEditingColor(null); setEditingName(''); setEditingOriginalRoom(null)
+      // Force a fresh repaint right as the new room's content gets added —
+      // see nudge()'s comment for why this is needed on some browsers.
+      requestAnimationFrame(() => blueprintCtrlRef.current?.nudge())
     } catch(err) {
       console.error('confirmRoom error:', err)
       setPoints([]); setNaming(null); setCustomName('')
@@ -1856,10 +2004,19 @@ const DrawScreen = React.forwardRef(function DrawScreen({ image, fracPerFt, aspe
           {scanningNames && <div style={{fontSize:12,color:'#888',marginBottom:8}}>🔍 Loading room names from blueprint…</div>}
           {!scanningNames && (
             <div style={{display:'flex',flexWrap:'wrap',gap:6,marginBottom:10}}>
-              {(scannedNames && scannedNames.length > 0
-                ? reorderNamesByProximity(scannedNames, naming.centroid)
-                : ['Garage','Living Room','Kitchen','Master Bedroom','Bedroom','Bathroom','Dining Room','Foyer','Hallway','Laundry','Office','Porch','Court','Utility','Pantry']
-              ).map((n,idx)=>(
+              {(() => {
+                const candidates = (scannedNames && scannedNames.length > 0
+                  ? reorderNamesByProximity(scannedNames, naming.centroid)
+                  : ['Garage','Living Room','Kitchen','Master Bedroom','Bedroom','Bathroom','Dining Room','Foyer','Hallway','Laundry','Office','Porch','Court','Utility','Pantry']
+                )
+                // Don't keep suggesting a name that's already been assigned
+                // to another room in this job — but never hide the current
+                // room's own name while editing it.
+                const usedNames = new Set(
+                  rooms.filter(r => r.id !== editingRoomId).map(r => r.name.trim().toLowerCase())
+                )
+                return candidates.filter(n => !usedNames.has(n.trim().toLowerCase()))
+              })().map((n,idx)=>(
                 <button key={idx+'-'+n} onClick={()=>setCustomName(n)}
                   style={{padding:'5px 10px',background:customName===n?ORANGE:'#f0f0f0',color:customName===n?'#fff':'#444',border:`1px solid ${customName===n?ORANGE:'#ddd'}`,borderRadius:20,fontSize:12,cursor:'pointer',fontWeight:customName===n?700:400}}>
                   {n}
@@ -2748,13 +2905,18 @@ export default function App() {
       setScreen('pdfPages')
       return
     }
-    setError(''); setImage(payload); setScreen('straighten'); setBlueprintView(null)
+    setError(''); setImage(payload); setScreen('crop'); setBlueprintView(null)
   }, [])
 
   function handlePdfPageImported(payload) {
     setImage(payload)
-    setScreen('straighten')
+    setScreen('crop')
     setBlueprintView(null)
+  }
+
+  function handleCropDone(result) {
+    setImage(prev => ({ ...prev, ...result }))
+    setScreen('straighten')
   }
 
   async function handleRotateImage() {
@@ -2794,10 +2956,11 @@ export default function App() {
       drawScreenRef.current.cancelActiveRoomEdit()
     }
     if (screen === 'pdfPages') { setPdfPicker(null); setImage(null); setScreen('upload') }
-    else if (screen === 'straighten') {
+    else if (screen === 'crop') {
       if (pdfPicker) setScreen('pdfPages')
       else { setScreen('upload'); setImage(null) }
     }
+    else if (screen === 'straighten') setScreen('crop')
     else if (screen === 'calibrate') setScreen('straighten')
     else if (screen === 'draw') setScreen('calibrate')
     else if (screen === 'results') setScreen('draw')
@@ -2830,6 +2993,7 @@ export default function App() {
       <style>{`@keyframes spin{to{transform:rotate(360deg)}} .fade-in{animation:fadeIn 0.3s ease forwards} @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}`}</style>
       <Header screen={screen} onBack={handleBack} onReset={reset} />
       {screen==='upload'    && <UploadScreen    onFile={handleFile} error={error} converting={converting} convertProgress={convertProgress} jobName={jobName} setJobName={setJobName} />}
+      {screen==='crop'      && <CropScreen      image={image} onDone={handleCropDone} onSkip={()=>setScreen('straighten')} />}
       {screen==='pdfPages'  && pdfPicker && <PdfPageScreen thumbnails={pdfPicker.thumbnails} buffer={pdfPicker.buffer} pdfName={pdfPicker.name} pdfSize={pdfPicker.size} jobName={jobName} onImported={handlePdfPageImported} />}
       {screen==='straighten' && <StraightenScreen image={image} onDone={handleStraightenDone} onSkip={()=>setScreen('calibrate')} onRotate={handleRotateImage} blueprintView={blueprintView} setBlueprintView={setBlueprintView} />}
       {screen==='calibrate' && <CalibrateScreen image={image} jobName={jobName} onDone={handleCalibrateDone} blueprintView={blueprintView} setBlueprintView={setBlueprintView} />}
