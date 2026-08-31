@@ -348,7 +348,7 @@ async function pdfFileToPageInfo(file, onProgress) {
   const pdfDoc = await window.pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer.slice(0)) }).promise
 
   if (pdfDoc.numPages <= 1) {
-    const dataUrl = await renderPdfPageToDataUrl(pdfDoc, 1, 3200, 0.95)
+    const dataUrl = await renderPdfPageToDataUrl(pdfDoc, 1, 4000, 0.95)
     return { single: true, src: dataUrl, base64: dataUrl.split(',')[1], mime: 'image/jpeg', name: file.name, size: file.size, fromPdf: true }
   }
 
@@ -366,7 +366,7 @@ async function pdfFileToPageInfo(file, onProgress) {
 async function renderFullPdfPage(arrayBuffer, pageNum) {
   await ensurePdfJs()
   const pdfDoc = await window.pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer.slice(0)) }).promise
-  const dataUrl = await renderPdfPageToDataUrl(pdfDoc, pageNum, 3200, 0.95)
+  const dataUrl = await renderPdfPageToDataUrl(pdfDoc, pageNum, 4000, 0.95)
   return { src: dataUrl, base64: dataUrl.split(',')[1] }
 }
 
