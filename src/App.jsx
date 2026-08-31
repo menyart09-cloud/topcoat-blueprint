@@ -944,10 +944,18 @@ const ZoomableBlueprint = React.forwardRef(function ZoomableBlueprint({ onTap, c
     } else if (e.touches.length === 1 && singleDragRef.current) {
       const t = e.touches[0]
       const v = viewRef.current
-      if (v.zoom > 1.01) {
-        // Single-finger pan when zoomed in — replaces what native browser
-        // scrolling used to provide for free before this became a
-        // transform-only (overflow:hidden) container.
+      // Same content-overflow check as the mouse drag handler — a fixed
+      // "zoom > 1.01" threshold here was a leftover gap from when that
+      // check was fixed for mouse dragging but not for touch, incorrectly
+      // blocking single-finger pan on content that overflows the
+      // container even at zoom=1.
+      const contentW = baseSize.w * v.zoom
+      const contentH = baseSize.h * v.zoom
+      const canPan = contentW > containerSize.w + 0.5 || contentH > containerSize.h + 0.5
+      if (canPan) {
+        // Single-finger pan when there's somewhere to pan to — replaces
+        // what native browser scrolling used to provide for free before
+        // this became a transform-only (overflow:hidden) container.
         e.preventDefault()
         const dx = t.clientX - singleDragRef.current.x
         const dy = t.clientY - singleDragRef.current.y
