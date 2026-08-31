@@ -1293,7 +1293,9 @@ function CropScreen({ image, onDone, onSkip }) {
             </div>
           )
         }}>
-        <img ref={imgRef} src={image.src} alt="Blueprint" style={{width:'100%',display:'block',userSelect:'none'}} draggable={false} />
+        <img ref={imgRef} src={image.src} alt="Blueprint"
+          onLoad={e => setImgSize({ w: e.target.clientWidth, h: e.target.clientHeight })}
+          style={{width:'100%',display:'block',userSelect:'none'}} draggable={false} />
       </ZoomableBlueprint>
       <div style={{display:'flex',gap:10,padding:'12px 14px',flexShrink:0}}>
         <button onClick={onSkip}
