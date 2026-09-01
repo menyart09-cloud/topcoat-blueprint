@@ -1935,7 +1935,7 @@ const DrawScreen = React.forwardRef(function DrawScreen({ image, fracPerFt, aspe
       </div>
 
       {/* Zoomable pinch-to-zoom drawing area - fills all available space */}
-      <ZoomableBlueprint ref={blueprintCtrlRef} onTap={e=>{if(!naming&&!identifying)handleTap(e)}} style={{flex:1,maxHeight:'none',minHeight:0,maxWidth:1000,width:'100%',margin:'0 auto'}} onZoomChange={setZoomLevel}
+      <ZoomableBlueprint ref={blueprintCtrlRef} onTap={e=>{if(!naming&&!identifying)handleTap(e)}} style={{flex:1,maxHeight:'none',minHeight:0,maxWidth:1000,width:'100%',margin:'0 auto'}} debug={true} onZoomChange={setZoomLevel}
         initialView={blueprintView} onViewChange={setBlueprintView}
         renderOverlay={toScreen => (
           <>
