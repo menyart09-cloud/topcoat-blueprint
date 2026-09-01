@@ -944,14 +944,9 @@ const ZoomableBlueprint = React.forwardRef(function ZoomableBlueprint({ onTap, c
     } else if (e.touches.length === 1 && singleDragRef.current) {
       const t = e.touches[0]
       const v = viewRef.current
-      // Same content-overflow check as the mouse drag handler — a fixed
-      // "zoom > 1.01" threshold here was a leftover gap from when that
-      // check was fixed for mouse dragging but not for touch, incorrectly
-      // blocking single-finger pan on content that overflows the
-      // container even at zoom=1.
       const contentW = baseSize.w * v.zoom
       const contentH = baseSize.h * v.zoom
-      const canPan = contentW > containerSize.w + 0.5 || contentH > containerSize.h + 0.5
+      const canPan = v.zoom > 1.01 || contentW > containerSize.w + 0.5 || contentH > containerSize.h + 0.5
       if (canPan) {
         // Single-finger pan when there's somewhere to pan to — replaces
         // what native browser scrolling used to provide for free before
@@ -990,19 +985,33 @@ const ZoomableBlueprint = React.forwardRef(function ZoomableBlueprint({ onTap, c
     if (!container) return
 
     function onWheel(e) {
-      if (!e.ctrlKey) return // let the browser handle normal scroll = pan
-      e.preventDefault()
-      const rect = container.getBoundingClientRect()
-      const screenX = e.clientX - rect.left, screenY = e.clientY - rect.top
       const v = viewRef.current
-      const delta = e.deltaY > 0 ? 0.85 : 1.18
-      const oldZoom = v.zoom
-      const newZoom = Math.min(Math.max(oldZoom * delta, 1), 12)
-      if (newZoom === oldZoom) return
-      const ratio = newZoom / oldZoom
-      const newPanX = screenX * (1 - ratio) + v.panX * ratio
-      const newPanY = screenY * (1 - ratio) + v.panY * ratio
-      setView(newZoom, newPanX, newPanY)
+      const contentW = baseSize.w * v.zoom
+      const contentH = baseSize.h * v.zoom
+      const canPan = v.zoom > 1.01 || contentW > containerSize.w + 0.5 || contentH > containerSize.h + 0.5
+
+      // Trackpad pinch / Ctrl+wheel → zoom toward cursor
+      if (e.ctrlKey) {
+        e.preventDefault()
+        const rect = container.getBoundingClientRect()
+        const screenX = e.clientX - rect.left, screenY = e.clientY - rect.top
+        const delta = e.deltaY > 0 ? 0.85 : 1.18
+        const oldZoom = v.zoom
+        const newZoom = Math.min(Math.max(oldZoom * delta, 1), 12)
+        if (newZoom === oldZoom) return
+        const ratio = newZoom / oldZoom
+        const newPanX = screenX * (1 - ratio) + v.panX * ratio
+        const newPanY = screenY * (1 - ratio) + v.panY * ratio
+        setView(newZoom, newPanX, newPanY)
+        return
+      }
+
+      // Regular wheel / trackpad scroll → pan (container is overflow:hidden, so
+      // the browser cannot do this for us)
+      if (canPan) {
+        e.preventDefault()
+        setView(v.zoom, v.panX - (e.deltaX || 0), v.panY - (e.deltaY || 0))
+      }
     }
 
     container.addEventListener('wheel', onWheel, { passive: false })
@@ -1021,24 +1030,38 @@ const ZoomableBlueprint = React.forwardRef(function ZoomableBlueprint({ onTap, c
 
   function onMouseDown(e) {
     if (e.button !== 0) return
-    // Only start a drag if there's actually somewhere to pan to — content
-    // taller or wider than the visible container right now. A fixed
-    // "zoom > 1.01" check incorrectly blocked panning on images that
-    // overflow vertically even at zoom=1 (e.g. a wide commercial floor
-    // plan with a tall notes section above it) while still correctly
-    // staying out of the way of ordinary corner-placement clicks when
-    // there's genuinely nothing to pan to.
-    const contentW = baseSize.w * viewRef.current.zoom
-    const contentH = baseSize.h * viewRef.current.zoom
-    const canPan = contentW > containerSize.w + 0.5 || contentH > containerSize.h + 0.5
+    const v = viewRef.current
+    const contentW = baseSize.w * v.zoom
+    const contentH = baseSize.h * v.zoom
+    // Allow pan when zoomed in OR when content overflows the viewport
+    const canPan = v.zoom > 1.01 || contentW > containerSize.w + 0.5 || contentH > containerSize.h + 0.5
     if (!canPan) return
     isDragging.current = true
     dragMoved.current = false
     lastMouse.current = { x: e.clientX, y: e.clientY }
     e.preventDefault()
+
+    // Track on window so drag continues if the cursor leaves the image
+    function onWinMove(ev) {
+      if (!isDragging.current) return
+      const dx = ev.clientX - lastMouse.current.x
+      const dy = ev.clientY - lastMouse.current.y
+      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) dragMoved.current = true
+      const cur = viewRef.current
+      setView(cur.zoom, cur.panX + dx, cur.panY + dy)
+      lastMouse.current = { x: ev.clientX, y: ev.clientY }
+    }
+    function onWinUp() {
+      isDragging.current = false
+      window.removeEventListener('mousemove', onWinMove)
+      window.removeEventListener('mouseup', onWinUp)
+    }
+    window.addEventListener('mousemove', onWinMove)
+    window.addEventListener('mouseup', onWinUp)
   }
 
   function onMouseMove(e) {
+    // Kept for completeness; primary tracking is on window while dragging
     if (!isDragging.current) return
     const dx = e.clientX - lastMouse.current.x
     const dy = e.clientY - lastMouse.current.y
