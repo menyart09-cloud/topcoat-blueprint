@@ -791,7 +791,7 @@ const ZoomableBlueprint = React.forwardRef(function ZoomableBlueprint({ onTap, c
   // 19.8). Reading that already-rounded value back to compute the NEXT
   // step compounds tiny errors over a multi-step pinch gesture. Keeping
   // our own exact numbers breaks that feedback loop entirely.
-  const viewRef = useRef(initialView || { zoom: 1, panX: 0, panY: 0 })
+  const viewRef = useRef({ zoom: 1, panX: 0, panY: 0 })
   const [, bump] = useState(0)
   const rerender = () => bump(v => v + 1)
 
@@ -1111,11 +1111,11 @@ touchMove(1 finger): ${debugCounts.current.touchMove1}
 touchMove(2 finger): ${debugCounts.current.touchMove2}
 mouseDown: ${debugCounts.current.mouseDown}
 mouseMove: ${debugCounts.current.mouseMove}
-zoom: ${view.zoom.toFixed(3)}
-panX: ${view.panX.toFixed(1)}
-panY: ${view.panY.toFixed(1)}
-container: ${containerSize.w.toFixed(0)}x${containerSize.h.toFixed(0)}
-baseSize: ${baseSize.w.toFixed(0)}x${baseSize.h.toFixed(0)}`}
+zoom: ${(view.zoom ?? NaN).toFixed(3)}
+panX: ${(view.panX ?? NaN).toFixed(1)}
+panY: ${(view.panY ?? NaN).toFixed(1)}
+container: ${(containerSize.w ?? NaN).toFixed(0)}x${(containerSize.h ?? NaN).toFixed(0)}
+baseSize: ${(baseSize.w ?? NaN).toFixed(0)}x${(baseSize.h ?? NaN).toFixed(0)}`}
       </div>
     )}
     </div>
