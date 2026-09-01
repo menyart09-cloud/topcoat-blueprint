@@ -348,7 +348,7 @@ async function pdfFileToPageInfo(file, onProgress) {
   const pdfDoc = await window.pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer.slice(0)) }).promise
 
   if (pdfDoc.numPages <= 1) {
-    const dataUrl = await renderPdfPageToDataUrl(pdfDoc, 1, 4000, 0.95)
+    const dataUrl = await renderPdfPageToDataUrl(pdfDoc, 1, 6000, 0.95)
     return { single: true, src: dataUrl, base64: dataUrl.split(',')[1], mime: 'image/jpeg', name: file.name, size: file.size, fromPdf: true }
   }
 
@@ -366,7 +366,7 @@ async function pdfFileToPageInfo(file, onProgress) {
 async function renderFullPdfPage(arrayBuffer, pageNum) {
   await ensurePdfJs()
   const pdfDoc = await window.pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer.slice(0)) }).promise
-  const dataUrl = await renderPdfPageToDataUrl(pdfDoc, pageNum, 4000, 0.95)
+  const dataUrl = await renderPdfPageToDataUrl(pdfDoc, pageNum, 6000, 0.95)
   return { src: dataUrl, base64: dataUrl.split(',')[1] }
 }
 
@@ -1536,7 +1536,7 @@ function CalibrateScreen({ image, jobName, onDone, blueprintView, setBlueprintVi
       </div>
 
       {/* Zoomable blueprint - max height */}
-      <ZoomableBlueprint onTap={handleTap} style={{height:'auto',minHeight:0,maxHeight:'75vh',maxWidth:1000,width:'100%',margin:'0 auto',aspectRatio:imgSize.w&&imgSize.h?`${imgSize.w} / ${imgSize.h}`:'4 / 3'}} debug={true} onZoomChange={setZoomLevel}
+      <ZoomableBlueprint onTap={handleTap} style={{height:'auto',minHeight:0,maxHeight:'75vh',maxWidth:1000,width:'100%',margin:'0 auto',aspectRatio:imgSize.w&&imgSize.h?`${imgSize.w} / ${imgSize.h}`:'4 / 3'}} onZoomChange={setZoomLevel}
         initialView={blueprintView} onViewChange={setBlueprintView}
         renderOverlay={toScreen => (
           <>
@@ -1935,7 +1935,7 @@ const DrawScreen = React.forwardRef(function DrawScreen({ image, fracPerFt, aspe
       </div>
 
       {/* Zoomable pinch-to-zoom drawing area - fills all available space */}
-      <ZoomableBlueprint ref={blueprintCtrlRef} onTap={e=>{if(!naming&&!identifying)handleTap(e)}} style={{flex:1,maxHeight:'none',minHeight:0,maxWidth:1000,width:'100%',margin:'0 auto'}} debug={true} onZoomChange={setZoomLevel}
+      <ZoomableBlueprint ref={blueprintCtrlRef} onTap={e=>{if(!naming&&!identifying)handleTap(e)}} style={{flex:1,maxHeight:'none',minHeight:0,maxWidth:1000,width:'100%',margin:'0 auto'}} onZoomChange={setZoomLevel}
         initialView={blueprintView} onViewChange={setBlueprintView}
         renderOverlay={toScreen => (
           <>
