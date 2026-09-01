@@ -773,13 +773,14 @@ function UploadScreen({ onFile, error, converting, convertProgress, jobName, set
 // Handles pinch-to-zoom + pan on mobile, Ctrl+wheel zoom + drag-pan on desktop.
 // Exposes centerOn(xAtZoom1, yAtZoom1, targetZoom) via ref for programmatic
 // centering (used by Move Corner to auto-center/zoom on a selected corner).
-const ZoomableBlueprint = React.forwardRef(function ZoomableBlueprint({ onTap, children, style, onZoomChange, renderOverlay, initialView, onViewChange }, ref) {
+const ZoomableBlueprint = React.forwardRef(function ZoomableBlueprint({ onTap, children, style, onZoomChange, renderOverlay, initialView, onViewChange, debug }, ref) {
+  const debugCounts = useRef({ touchStart: 0, touchMove1: 0, touchMove2: 0, mouseDown: 0, mouseMove: 0 })
+  const [, forceDebugUpdate] = useState(0)
   const containerRef = useRef()
   const contentRef   = useRef() // unscaled wrapper around children — used to measure natural (zoom=1) size
   const lastTouchRef  = useRef(null)
   const pinchRef      = useRef(null)
   const singleDragRef = useRef(null) // single-finger drag-to-pan on touch (previously handled for free by native scroll)
-  const lastTouchTapAt = useRef(0) // suppresses synthetic mouse click after a real touch tap
 
   // The "true" pan/zoom state, tracked EXACTLY in JS memory and only ever
   // WRITTEN to the screen via a CSS transform — never read back from the
@@ -900,6 +901,8 @@ const ZoomableBlueprint = React.forwardRef(function ZoomableBlueprint({ onTap, c
   }))
 
   function onTouchStart(e) {
+    debugCounts.current.touchStart++
+    if (debug) forceDebugUpdate(n => n + 1)
     if (e.touches.length === 2) {
       pinchRef.current = Math.hypot(
         e.touches[0].clientX - e.touches[1].clientX,
@@ -916,6 +919,7 @@ const ZoomableBlueprint = React.forwardRef(function ZoomableBlueprint({ onTap, c
 
   function onTouchMove(e) {
     if (e.touches.length === 2 && pinchRef.current !== null) {
+      debugCounts.current.touchMove2++
       e.preventDefault()
       const newDist = Math.hypot(
         e.touches[0].clientX - e.touches[1].clientX,
@@ -943,30 +947,31 @@ const ZoomableBlueprint = React.forwardRef(function ZoomableBlueprint({ onTap, c
       lastTouchRef.current = null
       singleDragRef.current = null
     } else if (e.touches.length === 1 && singleDragRef.current) {
+      debugCounts.current.touchMove1++
       const t = e.touches[0]
       const v = viewRef.current
-      const contentW = baseSize.w * v.zoom
-      const contentH = baseSize.h * v.zoom
-      const canPan = v.zoom > 1.01 || contentW > containerSize.w + 0.5 || contentH > containerSize.h + 0.5
-      if (canPan) {
-        // Single-finger pan when there's somewhere to pan to — replaces
-        // what native browser scrolling used to provide for free before
-        // this became a transform-only (overflow:hidden) container.
-        e.preventDefault()
-        const dx = t.clientX - singleDragRef.current.x
-        const dy = t.clientY - singleDragRef.current.y
-        setView(v.zoom, v.panX + dx, v.panY + dy)
-      }
+      // Always move the view — tap vs. drag is already correctly decided
+      // by actual pointer movement (the 12px threshold below), and
+      // clampView (inside setView) already prevents panning past the
+      // content's own edges. A separate "is there room to pan" prediction
+      // here was solving a problem that was already solved elsewhere,
+      // while repeatedly causing its own bugs (stale size measurements,
+      // interactions with aspect-ratio-based sizing, a touch/mouse gap).
+      e.preventDefault()
+      const dx = t.clientX - singleDragRef.current.x
+      const dy = t.clientY - singleDragRef.current.y
+      setView(v.zoom, v.panX + dx, v.panY + dy)
       singleDragRef.current = { x: t.clientX, y: t.clientY }
       if (lastTouchRef.current) {
-        const dx = Math.abs(t.clientX - lastTouchRef.current.x)
-        const dy = Math.abs(t.clientY - lastTouchRef.current.y)
-        if (dx > 12 || dy > 12) lastTouchRef.current = null // moved too far to still be a tap
+        const dx2 = Math.abs(t.clientX - lastTouchRef.current.x)
+        const dy2 = Math.abs(t.clientY - lastTouchRef.current.y)
+        if (dx2 > 12 || dy2 > 12) lastTouchRef.current = null // moved too far to still be a tap
       }
     }
   }
 
   function onTouchEnd(e) {
+    if (debug) forceDebugUpdate(n => n + 1)
     if (pinchRef.current !== null) { pinchRef.current = null; singleDragRef.current = null; return }
     singleDragRef.current = null
     if (!lastTouchRef.current) return
@@ -975,7 +980,6 @@ const ZoomableBlueprint = React.forwardRef(function ZoomableBlueprint({ onTap, c
     const dy = Math.abs(t.clientY - lastTouchRef.current.y)
     const dt = Date.now() - lastTouchRef.current.time
     if (dx < 12 && dy < 12 && dt < 400) {
-      lastTouchTapAt.current = Date.now()
       onTap && onTap({ clientX: t.clientX, clientY: t.clientY })
     }
     lastTouchRef.current = null
@@ -987,19 +991,12 @@ const ZoomableBlueprint = React.forwardRef(function ZoomableBlueprint({ onTap, c
     if (!container) return
 
     function onWheel(e) {
+      if (!e.ctrlKey) return // let the browser handle normal scroll = pan
       e.preventDefault()
-      const v = viewRef.current
       const rect = container.getBoundingClientRect()
       const screenX = e.clientX - rect.left, screenY = e.clientY - rect.top
-
-      // Plain wheel OR Ctrl+wheel OR trackpad pinch → zoom toward cursor.
-      // (Shift+wheel pans horizontally/vertically for users who want that.)
-      if (e.shiftKey) {
-        setView(v.zoom, v.panX - (e.deltaX || e.deltaY || 0), v.panY - (e.deltaY && e.deltaX ? e.deltaY : 0))
-        return
-      }
-
-      const delta = e.deltaY > 0 ? 0.9 : 1.12
+      const v = viewRef.current
+      const delta = e.deltaY > 0 ? 0.85 : 1.18
       const oldZoom = v.zoom
       const newZoom = Math.min(Math.max(oldZoom * delta, 1), 12)
       if (newZoom === oldZoom) return
@@ -1025,38 +1022,23 @@ const ZoomableBlueprint = React.forwardRef(function ZoomableBlueprint({ onTap, c
 
   function onMouseDown(e) {
     if (e.button !== 0) return
-    // Always start tracking — short click = tap (place A/B), drag = pan.
-    // At zoom=1 with a fitted image, clampView keeps the image centered so
-    // pan is a no-op, but as soon as the user zooms, drag works immediately.
+    debugCounts.current.mouseDown++
+    if (debug) forceDebugUpdate(n => n + 1)
+    // Always start tracking a potential drag — tap vs. drag is already
+    // correctly decided by actual mouse movement (dragMoved, checked in
+    // onClick below), and clampView (inside setView) already prevents
+    // panning past the content's own edges. Predicting in advance
+    // whether there's "somewhere to pan to" was solving an
+    // already-solved problem, while repeatedly causing its own bugs.
     isDragging.current = true
     dragMoved.current = false
     lastMouse.current = { x: e.clientX, y: e.clientY }
     e.preventDefault()
-
-    function onWinMove(ev) {
-      if (!isDragging.current) return
-      const dx = ev.clientX - lastMouse.current.x
-      const dy = ev.clientY - lastMouse.current.y
-      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) dragMoved.current = true
-      // Only apply pan once the user has actually dragged (keeps clicks clean)
-      if (dragMoved.current) {
-        const cur = viewRef.current
-        setView(cur.zoom, cur.panX + dx, cur.panY + dy)
-      }
-      lastMouse.current = { x: ev.clientX, y: ev.clientY }
-    }
-    function onWinUp() {
-      isDragging.current = false
-      window.removeEventListener('mousemove', onWinMove)
-      window.removeEventListener('mouseup', onWinUp)
-    }
-    window.addEventListener('mousemove', onWinMove)
-    window.addEventListener('mouseup', onWinUp)
   }
 
   function onMouseMove(e) {
-    // Kept for completeness; primary tracking is on window while dragging
     if (!isDragging.current) return
+    debugCounts.current.mouseMove++
     const dx = e.clientX - lastMouse.current.x
     const dy = e.clientY - lastMouse.current.y
     if (Math.abs(dx) > 3 || Math.abs(dy) > 3) dragMoved.current = true
@@ -1067,6 +1049,7 @@ const ZoomableBlueprint = React.forwardRef(function ZoomableBlueprint({ onTap, c
 
   function onMouseUp() {
     isDragging.current = false
+    if (debug) forceDebugUpdate(n => n + 1)
   }
 
   const view = viewRef.current
@@ -1077,7 +1060,7 @@ const ZoomableBlueprint = React.forwardRef(function ZoomableBlueprint({ onTap, c
         overflow: 'hidden',
         background: '#111',
         position: 'relative',
-        cursor: view.zoom > 1.01 ? 'grab' : 'crosshair',
+        cursor: 'grab',
         touchAction: 'none', // we handle all pan/zoom ourselves now — no native scroll involved at all
         height: '100%',
         width: '100%'
@@ -1092,12 +1075,7 @@ const ZoomableBlueprint = React.forwardRef(function ZoomableBlueprint({ onTap, c
       onClick={e => {
         // Ignore click if we just finished a real drag
         if (dragMoved.current) { dragMoved.current = false; return }
-        // Ignore the synthetic click that mobile browsers fire after a
-        // touch tap — those are already handled in onTouchEnd. Checking
-        // ontouchstart-in-window was wrong: many desktops report touch
-        // support and then never placed points with the mouse.
-        if (Date.now() - (lastTouchTapAt.current || 0) < 500) return
-        onTap && onTap(e)
+        if (!('ontouchstart' in window)) onTap && onTap(e)
       }}
     >
       <div ref={contentRef} style={{
@@ -1120,6 +1098,24 @@ const ZoomableBlueprint = React.forwardRef(function ZoomableBlueprint({ onTap, c
     {renderOverlay && (
       <div style={{ position:'absolute', inset:0, overflow:'hidden', pointerEvents:'none' }}>
         {renderOverlay(toScreen)}
+      </div>
+    )}
+    {debug && (
+      <div style={{
+        position:'absolute', top:4, left:4, zIndex:999, pointerEvents:'none',
+        background:'rgba(0,0,0,0.85)', color:'#0f0', fontFamily:'monospace', fontSize:11,
+        padding:'6px 8px', borderRadius:4, lineHeight:1.5, whiteSpace:'pre'
+      }}>
+{`touchStart: ${debugCounts.current.touchStart}
+touchMove(1 finger): ${debugCounts.current.touchMove1}
+touchMove(2 finger): ${debugCounts.current.touchMove2}
+mouseDown: ${debugCounts.current.mouseDown}
+mouseMove: ${debugCounts.current.mouseMove}
+zoom: ${view.zoom.toFixed(3)}
+panX: ${view.panX.toFixed(1)}
+panY: ${view.panY.toFixed(1)}
+container: ${containerSize.w.toFixed(0)}x${containerSize.h.toFixed(0)}
+baseSize: ${baseSize.w.toFixed(0)}x${baseSize.h.toFixed(0)}`}
       </div>
     )}
     </div>
@@ -1536,11 +1532,11 @@ function CalibrateScreen({ image, jobName, onDone, blueprintView, setBlueprintVi
     <div style={{ display:'flex', flexDirection:'column', height:'calc(100vh - 60px)' }}>
       <div style={{background:'#1a2744',padding:'9px 16px',display:'flex',alignItems:'center',gap:8}}>
         {jobName && <span style={{color:ORANGE,fontSize:11,fontWeight:700,flexShrink:0}}>{jobName}</span>}
-        <span style={{color:'#fff',fontWeight:600,fontSize:14}}>📏 SET SCALE — Tap A then B on a known dimension line · Scroll to zoom · Drag to pan</span>
+        <span style={{color:'#fff',fontWeight:600,fontSize:14}}>📏 SET SCALE — Tap A then B on a known dimension line · Pinch to zoom</span>
       </div>
 
       {/* Zoomable blueprint - max height */}
-      <ZoomableBlueprint onTap={handleTap} style={{height:'auto',minHeight:0,maxHeight:'75vh',maxWidth:1000,width:'100%',margin:'0 auto',aspectRatio:imgSize.w&&imgSize.h?`${imgSize.w} / ${imgSize.h}`:'4 / 3'}} onZoomChange={setZoomLevel}
+      <ZoomableBlueprint onTap={handleTap} style={{height:'auto',minHeight:0,maxHeight:'75vh',maxWidth:1000,width:'100%',margin:'0 auto',aspectRatio:imgSize.w&&imgSize.h?`${imgSize.w} / ${imgSize.h}`:'4 / 3'}} debug={true} onZoomChange={setZoomLevel}
         initialView={blueprintView} onViewChange={setBlueprintView}
         renderOverlay={toScreen => (
           <>
