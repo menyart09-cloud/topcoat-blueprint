@@ -779,6 +779,7 @@ const ZoomableBlueprint = React.forwardRef(function ZoomableBlueprint({ onTap, c
   const lastTouchRef  = useRef(null)
   const pinchRef      = useRef(null)
   const singleDragRef = useRef(null) // single-finger drag-to-pan on touch (previously handled for free by native scroll)
+  const lastTouchTapAt = useRef(0) // suppresses synthetic mouse click after a real touch tap
 
   // The "true" pan/zoom state, tracked EXACTLY in JS memory and only ever
   // WRITTEN to the screen via a CSS transform — never read back from the
@@ -974,6 +975,7 @@ const ZoomableBlueprint = React.forwardRef(function ZoomableBlueprint({ onTap, c
     const dy = Math.abs(t.clientY - lastTouchRef.current.y)
     const dt = Date.now() - lastTouchRef.current.time
     if (dx < 12 && dy < 12 && dt < 400) {
+      lastTouchTapAt.current = Date.now()
       onTap && onTap({ clientX: t.clientX, clientY: t.clientY })
     }
     lastTouchRef.current = null
@@ -1090,7 +1092,12 @@ const ZoomableBlueprint = React.forwardRef(function ZoomableBlueprint({ onTap, c
       onClick={e => {
         // Ignore click if we just finished a real drag
         if (dragMoved.current) { dragMoved.current = false; return }
-        if (!('ontouchstart' in window)) onTap && onTap(e)
+        // Ignore the synthetic click that mobile browsers fire after a
+        // touch tap — those are already handled in onTouchEnd. Checking
+        // ontouchstart-in-window was wrong: many desktops report touch
+        // support and then never placed points with the mouse.
+        if (Date.now() - (lastTouchTapAt.current || 0) < 500) return
+        onTap && onTap(e)
       }}
     >
       <div ref={contentRef} style={{
