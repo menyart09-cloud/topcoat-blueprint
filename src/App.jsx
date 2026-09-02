@@ -296,6 +296,60 @@ function getLabelInches(labelSizeInches) {
 // ── Clamp a fractional image coordinate to [0,1] ────────────────
 function clamp01(v) { return Math.min(1, Math.max(0, v)) }
 
+// ── Tap feedback sounds ──────────────────────────────────────
+// Short tones generated on the fly (no audio files to load/host).
+// One shared AudioContext, created lazily on first real use — browsers
+// require a user gesture before audio can play, which is naturally
+// satisfied here since every call site is itself inside a tap handler.
+// Note for the field: like virtually all in-browser audio, these are
+// silenced by an iPhone's physical mute switch — there's no way around
+// that from web code, so crew with phones muted won't hear anything.
+let sharedAudioCtx = null
+function getAudioCtx() {
+  try {
+    if (!sharedAudioCtx) {
+      const Ctx = window.AudioContext || window.webkitAudioContext
+      if (!Ctx) return null
+      sharedAudioCtx = new Ctx()
+    }
+    if (sharedAudioCtx.state === 'suspended') sharedAudioCtx.resume()
+    return sharedAudioCtx
+  } catch { return null }
+}
+function scheduleTone(ctx, freq, startTime, duration, volume, waveType) {
+  const osc = ctx.createOscillator()
+  const gain = ctx.createGain()
+  osc.type = waveType
+  osc.frequency.value = freq
+  gain.gain.setValueAtTime(volume, startTime)
+  gain.gain.exponentialRampToValueAtTime(0.0001, startTime + duration)
+  osc.connect(gain)
+  gain.connect(ctx.destination)
+  osc.start(startTime)
+  osc.stop(startTime + duration)
+}
+// A quick, subtle tick for placing a point/corner.
+function playTickSound() {
+  const ctx = getAudioCtx()
+  if (!ctx) return
+  try { scheduleTone(ctx, 880, ctx.currentTime, 0.06, 0.12, 'sine') } catch {}
+}
+// A brighter two-note rise for closing a room (a bigger "done" moment).
+function playSuccessSound() {
+  const ctx = getAudioCtx()
+  if (!ctx) return
+  try {
+    scheduleTone(ctx, 660, ctx.currentTime, 0.09, 0.14, 'sine')
+    scheduleTone(ctx, 880, ctx.currentTime + 0.08, 0.13, 0.14, 'sine')
+  } catch {}
+}
+// A low, short buzz for a tap that didn't register (out of bounds, etc).
+function playErrorSound() {
+  const ctx = getAudioCtx()
+  if (!ctx) return
+  try { scheduleTone(ctx, 220, ctx.currentTime, 0.13, 0.08, 'square') } catch {}
+}
+
 // ── PDF to high-res image ─────────────────────────────────────
 // ── Ensure pdf.js library is loaded (shared by all PDF rendering) ─
 async function ensurePdfJs() {
@@ -1359,6 +1413,7 @@ function StraightenScreen({ image, onDone, onSkip, onRotate, blueprintView, setB
     const clientX = e.clientX ?? e.changedTouches?.[0]?.clientX ?? e.touches?.[0]?.clientX
     const clientY = e.clientY ?? e.changedTouches?.[0]?.clientY ?? e.touches?.[0]?.clientY
     if (clientX == null) return
+    playTickSound()
     setPoints(p => [...p, {
       x: (clientX - rect.left) / rect.width,
       y: (clientY - rect.top)  / rect.height
@@ -1488,6 +1543,7 @@ function CalibrateScreen({ image, jobName, onDone, blueprintView, setBlueprintVi
     const clientX = e.clientX ?? e.changedTouches?.[0]?.clientX ?? e.touches?.[0]?.clientX
     const clientY = e.clientY ?? e.changedTouches?.[0]?.clientY ?? e.touches?.[0]?.clientY
     if (clientX == null) return
+    playTickSound()
     setPoints(p => [...p, {
       x: (clientX - rect.left) / rect.width,
       y: (clientY - rect.top)  / rect.height
@@ -1799,7 +1855,7 @@ const DrawScreen = React.forwardRef(function DrawScreen({ image, fracPerFt, aspe
     if (!imgRef.current) return
     // ZoomableBlueprint passes plain {clientX, clientY} object
     const pt = getPoint(e)
-    if (!pt || pt.x < 0 || pt.x > 1 || pt.y < 0 || pt.y > 1) return
+    if (!pt || pt.x < 0 || pt.x > 1 || pt.y < 0 || pt.y > 1) { playErrorSound(); return }
 
     if (points.length >= 3) {
       const first = points[0]
@@ -1812,11 +1868,13 @@ const DrawScreen = React.forwardRef(function DrawScreen({ image, fracPerFt, aspe
         return
       }
     }
+    playTickSound()
     setPoints(p => [...p, pt])
   }
 
   async function closePolygon() {
     if (points.length < 3) return
+    playSuccessSound()
     const sqft  = Math.round(polygonAreaFt(points, fracPerFt, aspectRatio))
     const perim = Math.round(polygonPerimeterFt(points, fracPerFt, aspectRatio))
     const c     = centroid(points)
