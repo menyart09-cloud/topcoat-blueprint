@@ -460,12 +460,17 @@ Respond ONLY with this JSON (no markdown, no explanation):
 async function scanRoomNames(base64, mime) {
   const prompt = `Look carefully at this blueprint floor plan image.
 Find and list ALL room names, space labels, and area names printed on it.
-Include every labeled space you can see. For each one, also estimate its
-position in the image as a fraction of width/height (0 to 1, top-left is 0,0)
-— this is used later to match each name back to the right room.
+Include every labeled space you can see. Commercial prints typically also
+print a room NUMBER near each room name (often boxed or underlined, e.g.
+"108" under "VISITOR LOCKER ROOM") — include it whenever you see one,
+exactly as printed (numbers can include letters, e.g. "108A"). For each
+one, also estimate its position in the image as a fraction of width/height
+(0 to 1, top-left is 0,0) — this is used later to match each name back to
+the right room.
 
 Respond ONLY with JSON in this exact shape, no markdown:
-{"rooms": [{"name": "Living Room", "x": 0.42, "y": 0.61}, {"name": "Kitchen", "x": 0.71, "y": 0.22}]}`
+{"rooms": [{"name": "Living Room", "number": "108", "x": 0.42, "y": 0.61}, {"name": "Kitchen", "x": 0.71, "y": 0.22}]}
+— omit "number" entirely for rooms with no visible number.`
 
   try {
     const smallBase64 = await compressImage(base64, mime, 0.5)
@@ -481,17 +486,30 @@ Respond ONLY with JSON in this exact shape, no markdown:
   } catch { return null }
 }
 
+// ── Combine a scanned room's name and number into one display string,
+// for use as a naming suggestion. Number is a far more reliable match
+// key than name on commercial prints (which number every room), so it's
+// included whenever the AI found one: both when present, whichever one
+// alone is present otherwise. ──
+function formatRoomLabel(r) {
+  const name = (r.name || '').trim()
+  const number = (r.number || '').toString().trim()
+  if (number && name) return `${number} · ${name}`
+  if (number) return number
+  return name
+}
+
 // ── Reorder a cached {name,x,y} room-name list by proximity to a given
 // room's centroid — this is what makes the AI's best-guess-first behavior
 // work for EVERY room traced, not just the first, without a fresh API
 // call per room. Entries with no position data sort to the middle rather
 // than dominating either end.
 function reorderNamesByProximity(scannedRooms, targetCentroid) {
-  if (!scannedRooms || !targetCentroid) return (scannedRooms || []).map(r => r.name)
+  if (!scannedRooms || !targetCentroid) return (scannedRooms || []).map(formatRoomLabel)
   return [...scannedRooms]
     .map(r => ({ ...r, _dist: (r.x == null || r.y == null) ? 0.5 : Math.hypot(r.x - targetCentroid.x, r.y - targetCentroid.y) }))
     .sort((a, b) => a._dist - b._dist)
-    .map(r => r.name)
+    .map(formatRoomLabel)
 }
 
 // ── EXIF orientation handling ─────────────────────────────────
@@ -2143,7 +2161,7 @@ const DrawScreen = React.forwardRef(function DrawScreen({ image, fracPerFt, aspe
                 const usedNames = new Set(
                   rooms.filter(r => r.id !== editingRoomId).map(r => r.name.trim().toLowerCase())
                 )
-                return candidates.filter(n => !usedNames.has(n.trim().toLowerCase()))
+                return candidates.filter(n => n && n.trim() && !usedNames.has(n.trim().toLowerCase()))
               })().map((n,idx)=>(
                 <button key={idx+'-'+n} onClick={()=>setCustomName(n)}
                   style={{padding:'5px 10px',background:customName===n?ORANGE:'#f0f0f0',color:customName===n?'#fff':'#444',border:`1px solid ${customName===n?ORANGE:'#ddd'}`,borderRadius:20,fontSize:12,cursor:'pointer',fontWeight:customName===n?700:400}}>
