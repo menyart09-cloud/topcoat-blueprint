@@ -9,7 +9,7 @@ export default async function handler(req, res) {
   // by proximity for every room traced, not just the first one — without
   // needing a fresh API call each time.
   if (mode === 'roomlist') {
-    const prompt = customPrompt || `Look at this blueprint floor plan. Find every room name and space label printed on it, and estimate each one's position as a fraction of the image (0 to 1, top-left is 0,0). Respond ONLY with JSON: {"rooms":[{"name":"Room 1","x":0.3,"y":0.5}]}`
+    const prompt = customPrompt || `Look at this blueprint floor plan. Find every room name and space label printed on it. Commercial prints typically also print a room NUMBER near each room name (often boxed or underlined, e.g. "108" under "VISITOR LOCKER ROOM") — include it whenever you see one, exactly as printed (numbers can include letters, e.g. "108A"). Estimate each room's position as a fraction of the image (0 to 1, top-left is 0,0). Respond ONLY with JSON: {"rooms":[{"name":"Room 1","number":"108","x":0.3,"y":0.5}]} — omit "number" entirely for rooms with no visible number.`
     try {
       const response = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
@@ -44,15 +44,26 @@ export default async function handler(req, res) {
         }
       }
       const cleaned = rooms
-        .filter(r => r && typeof r.name === 'string' && r.name.trim())
+        .filter(r => r && ((typeof r.name === 'string' && r.name.trim()) || (typeof r.number === 'string' && r.number.trim()) || (typeof r.number === 'number')))
         .map(r => ({
-          name: r.name.trim(),
+          name: (typeof r.name === 'string' && r.name.trim()) ? r.name.trim() : '',
+          number: (typeof r.number === 'string' && r.number.trim() && r.number.trim().length <= 12) ? r.number.trim()
+                : (typeof r.number === 'number') ? String(r.number)
+                : null,
           x: (typeof r.x === 'number' && r.x >= 0 && r.x <= 1) ? r.x : null,
           y: (typeof r.y === 'number' && r.y >= 0 && r.y <= 1) ? r.y : null
         }))
-      // De-dupe by name, keeping the first occurrence
+      // De-dupe using the room number when present (a far more reliable
+      // key than name — a print can have several rooms legitimately named
+      // "Storage" with different numbers, and those must stay distinct).
+      // Falls back to name when no number was found for that entry.
       const seen = new Set()
-      const deduped = cleaned.filter(r => { const k = r.name.toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true })
+      const deduped = cleaned.filter(r => {
+        const k = r.number ? `num:${r.number.toLowerCase()}` : `name:${r.name.toLowerCase()}`
+        if (seen.has(k)) return false
+        seen.add(k)
+        return true
+      })
       return res.status(200).json({ rooms: deduped })
     } catch { return res.status(200).json({ rooms: [] }) }
   }
