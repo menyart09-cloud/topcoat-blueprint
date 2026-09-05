@@ -2367,7 +2367,7 @@ const DrawScreen = React.forwardRef(function DrawScreen({ image, fracPerFt, aspe
 })
 
 // ── Results Screen ────────────────────────────────────────────
-const ResultsScreen = React.forwardRef(function ResultsScreen({ image, rooms, jobName, setJobName, fracPerFt, aspectRatio, labelSizeInches, miscItems, setMiscItems, reportSaved, onDirty, onReset, onEdit, onSaved }, ref) {
+const ResultsScreen = React.forwardRef(function ResultsScreen({ image, rooms, jobName, setJobName, fracPerFt, aspectRatio, labelSizeInches, miscItems, setMiscItems, reportSaved, onDirty, onReset, onEdit, onSaved, jobSheetId, setJobSheetId, jobFolderId, setJobFolderId }, ref) {
   const [editingJobName, setEditingJobName] = useState(false)
   const [pricingRoomId, setPricingRoomId] = useState(null) // which room's pricing card is expanded, if any
   const [jobNameDraft,   setJobNameDraft]   = useState(jobName)
@@ -2383,8 +2383,6 @@ const ResultsScreen = React.forwardRef(function ResultsScreen({ image, rooms, jo
 
   // ── Sheets export (additive — never blocks the existing device-image save) ──
   const SHEETS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwaUsAc83sErNlyngkX1XvKv0M81kpSq0CammlP7irHfL2Z2hc5kjAbCl13X2qjTWFK/exec'
-  const sheetIdRef = useRef(null) // set once this job has been exported once this session
-  const folderIdRef = useRef(null)
 
   async function callSheetsScript(payload) {
     const res = await fetch(SHEETS_SCRIPT_URL, {
@@ -2432,16 +2430,16 @@ const ResultsScreen = React.forwardRef(function ResultsScreen({ image, rooms, jo
       addons: addonPayload
     }
 
-    if (!sheetIdRef.current) {
+    if (!jobSheetId) {
       const created = await callSheetsScript({ action: 'createJob', job: jobPayload })
-      sheetIdRef.current = created.sheetId
-      folderIdRef.current = created.folderId
+      setJobSheetId(created.sheetId)
+      setJobFolderId(created.folderId)
       // createJob only sets up the Sheet's headers — it doesn't write the
       // actual room/add-on data. Immediately save into the Sheet we just
       // created so a first-time export isn't left with an empty Rooms tab.
-      await callSheetsScript({ action: 'saveJob', job: { ...jobPayload, sheetId: sheetIdRef.current } })
+      await callSheetsScript({ action: 'saveJob', job: { ...jobPayload, sheetId: created.sheetId } })
     } else {
-      await callSheetsScript({ action: 'saveJob', job: { ...jobPayload, sheetId: sheetIdRef.current } })
+      await callSheetsScript({ action: 'saveJob', job: { ...jobPayload, sheetId: jobSheetId } })
     }
   }
 
@@ -3112,6 +3110,13 @@ export default function App() {
   const [miscItems, setMiscItems] = useState([]) // flat-dollar line items not tied to sq ft — [{id, label, amount}]
   const [rooms,       setRooms]       = useState([])
   const [jobName,     setJobName]     = useState('')
+  // Tracks which Sheet this job has already been exported to, if any.
+  // Lives at this top level (not inside ResultsScreen) specifically so it
+  // survives navigating away from Results and back — e.g. going back to
+  // Draw to fix a room — without losing track of the job and accidentally
+  // creating a duplicate job folder on the next save.
+  const [jobSheetId,   setJobSheetId]   = useState(null)
+  const [jobFolderId,  setJobFolderId]  = useState(null)
   const [error,       setError]       = useState('')
   const [converting,  setConverting]  = useState(false)
   const [convertProgress, setConvertProgress] = useState(null) // {current,total} while generating PDF page previews
@@ -3216,6 +3221,7 @@ export default function App() {
     setScreen('upload'); setImage(null); setFracPerFt(null); setRooms([]); setError(''); setConverting(false)
     setJobName(''); setPdfPicker(null); setLabelSizeInches(DEFAULT_LABEL_SIZE_INCHES); setMiscItems([])
     setReportSaved(false); setHasSavedOnce(false); setUnsavedWarning(null); setBlueprintView(null)
+    setJobSheetId(null); setJobFolderId(null) // starting fresh must not carry over the last job's Sheet
   }
 
   function reset() {
@@ -3244,7 +3250,7 @@ export default function App() {
       {screen==='straighten' && <StraightenScreen image={image} onDone={handleStraightenDone} onSkip={()=>setScreen('calibrate')} onRotate={handleRotateImage} blueprintView={blueprintView} setBlueprintView={setBlueprintView} />}
       {screen==='calibrate' && <CalibrateScreen image={image} jobName={jobName} onDone={handleCalibrateDone} blueprintView={blueprintView} setBlueprintView={setBlueprintView} />}
       {screen==='draw'      && <DrawScreen      ref={drawScreenRef} image={image} fracPerFt={fracPerFt} aspectRatio={aspectRatio} rooms={rooms} jobName={jobName} onAddRoom={r=>setRooms(p=>[...p,r])} onRemoveRoom={id=>setRooms(p=>p.filter(r=>r.id!==id))} onUpdateRoom={(id,patch)=>setRooms(p=>p.map(r=>r.id===id?{...r,...patch}:r))} onFinish={()=>setScreen('results')} labelSizeInches={labelSizeInches} setLabelSizeInches={setLabelSizeInches} blueprintView={blueprintView} setBlueprintView={setBlueprintView} />}
-      {screen==='results'   && <ResultsScreen   ref={resultsScreenRef} image={image} rooms={rooms} jobName={jobName} setJobName={setJobName} fracPerFt={fracPerFt} aspectRatio={aspectRatio} labelSizeInches={labelSizeInches} miscItems={miscItems} setMiscItems={setMiscItems} reportSaved={reportSaved} onDirty={()=>setReportSaved(false)} onReset={reset} onEdit={()=>setScreen('draw')} onSaved={()=>{ setReportSaved(true); setHasSavedOnce(true) }} />}
+      {screen==='results'   && <ResultsScreen   ref={resultsScreenRef} image={image} rooms={rooms} jobName={jobName} setJobName={setJobName} fracPerFt={fracPerFt} aspectRatio={aspectRatio} labelSizeInches={labelSizeInches} miscItems={miscItems} setMiscItems={setMiscItems} reportSaved={reportSaved} onDirty={()=>setReportSaved(false)} onReset={reset} onEdit={()=>setScreen('draw')} onSaved={()=>{ setReportSaved(true); setHasSavedOnce(true) }} jobSheetId={jobSheetId} setJobSheetId={setJobSheetId} jobFolderId={jobFolderId} setJobFolderId={setJobFolderId} />}
       {unsavedWarning && (
         <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.45)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:100,padding:20}}
           onClick={()=>setUnsavedWarning(null)}>
