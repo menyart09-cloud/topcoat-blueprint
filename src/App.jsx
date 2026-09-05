@@ -2382,12 +2382,15 @@ const ResultsScreen = React.forwardRef(function ResultsScreen({ image, rooms, jo
   const [roomDoorWidths, setRoomDoorWidths] = useState({}) // { room.id: standard door width in ft, default 3 }
 
   // ── Sheets export (additive — never blocks the existing device-image save) ──
-  const SHEETS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwaUsAc83sErNlyngkX1XvKv0M81kpSq0CammlP7irHfL2Z2hc5kjAbCl13X2qjTWFK/exec'
+  // Calls our own /api/sheets endpoint, which forwards to the Apps Script
+  // server-to-server — calling Google's script URL directly from the
+  // browser gets blocked by CORS, since Apps Script doesn't reliably send
+  // the headers browsers require for cross-origin JS to read the response.
 
   async function callSheetsScript(payload) {
-    const res = await fetch(SHEETS_SCRIPT_URL, {
+    const res = await fetch('/api/sheets', {
       method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // avoids CORS preflight against Apps Script
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     })
     const data = await res.json()
