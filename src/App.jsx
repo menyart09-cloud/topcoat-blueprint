@@ -2396,8 +2396,8 @@ const ResultsScreen = React.forwardRef(function ResultsScreen({ image, rooms, jo
     const data = await res.json()
     if (data.error) {
       // TEMPORARY — surfaces the real Google response for debugging.
-      // Remove this alert once the export is confirmed working reliably.
-      if (data.rawResponsePreview) alert('DEBUG — Google said:\n\n' + data.rawResponsePreview)
+      // Remove this once the export is confirmed working reliably.
+      if (data.rawResponsePreview) console.error('DEBUG — Google said:\n' + data.rawResponsePreview)
       throw new Error(data.error)
     }
     return data
