@@ -15,8 +15,18 @@ export default async function handler(req, res) {
       body: JSON.stringify(req.body),
       redirect: 'follow' // Apps Script's /exec URL responds with a redirect to the real content
     })
-    const data = await response.json()
-    return res.status(200).json(data)
+    const rawText = await response.text()
+    try {
+      const data = JSON.parse(rawText)
+      return res.status(200).json(data)
+    } catch (parseErr) {
+      // Google didn't return JSON — surface exactly what it did return
+      // (truncated) so we can see the real cause instead of guessing.
+      return res.status(500).json({
+        error: 'Google returned non-JSON. HTTP status: ' + response.status,
+        rawResponsePreview: rawText.slice(0, 1500)
+      })
+    }
   } catch (err) {
     return res.status(500).json({ error: 'Sheets proxy failed: ' + (err.message || 'Unknown error') })
   }
