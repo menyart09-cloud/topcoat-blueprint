@@ -785,6 +785,31 @@ function UploadScreen({ onFile, error, converting, convertProgress, jobName, set
     reader.readAsDataURL(file)
   }
 
+  // Clipboard paste support (Ctrl+V / Cmd+V) — lets users paste a
+  // screenshotted or copied blueprint image directly, same path as
+  // drag-and-drop. Attached at window level since the upload zone
+  // itself isn't a focusable/editable element that would natively
+  // receive paste events.
+  useEffect(() => {
+    function onPaste(e) {
+      if (converting) return
+      const items = e.clipboardData?.items
+      if (!items) return
+      for (const item of items) {
+        if (item.kind === 'file') {
+          const file = item.getAsFile()
+          if (file) {
+            e.preventDefault()
+            handleFiles([file])
+            return
+          }
+        }
+      }
+    }
+    window.addEventListener('paste', onPaste)
+    return () => window.removeEventListener('paste', onPaste)
+  }, [converting, jobName])
+
   return (
     <div style={{ padding: '20px 16px' }}>
       {/* Job Name */}
@@ -823,7 +848,7 @@ function UploadScreen({ onFile, error, converting, convertProgress, jobName, set
             <><div style={{fontSize:28,marginBottom:8}}>⏳</div><div style={{fontWeight:600,fontSize:14,color:'#222'}}>Converting PDF…</div></>
           )
         ) : (
-          <><div style={{fontSize:32,marginBottom:8}}>📄</div><div style={{fontWeight:600,fontSize:14,color:'#222',marginBottom:4}}>Upload Blueprint</div><div style={{fontSize:13,color:'#999'}}>PDF · JPG · PNG · WEBP</div><div style={{marginTop:8,display:'inline-block',background:'#e0f0f8',color:'#005f8a',borderRadius:6,padding:'3px 10px',fontSize:12,fontWeight:600}}>✓ PDF supported</div></>
+          <><div style={{fontSize:32,marginBottom:8}}>📄</div><div style={{fontWeight:600,fontSize:14,color:'#222',marginBottom:4}}>Upload Blueprint</div><div style={{fontSize:13,color:'#999'}}>PDF · JPG · PNG · WEBP · or paste (Ctrl/Cmd+V)</div><div style={{marginTop:8,display:'inline-block',background:'#e0f0f8',color:'#005f8a',borderRadius:6,padding:'3px 10px',fontSize:12,fontWeight:600}}>✓ PDF supported</div></>
         )}
       </div>
       {error && <div style={{marginTop:12,background:'#fdecea',border:'1px solid #f5c6c6',borderRadius:8,padding:'12px 14px',color:'#c62828',fontSize:13}}>⚠️ {error}</div>}
@@ -2355,6 +2380,67 @@ const ResultsScreen = React.forwardRef(function ResultsScreen({ image, rooms, jo
   const [roomLfPrices, setRoomLfPrices] = useState({}) // { room.id: pricePerLf string } — for perimeter products like cove base
   const [roomDoorCounts, setRoomDoorCounts] = useState({}) // { room.id: number of doorways to exclude }
   const [roomDoorWidths, setRoomDoorWidths] = useState({}) // { room.id: standard door width in ft, default 3 }
+
+  // ── Sheets export (additive — never blocks the existing device-image save) ──
+  const SHEETS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwaUsAc83sErNlyngkX1XvKv0M81kpSq0CammlP7irHfL2Z2hc5kjAbCl13X2qjTWFK/exec'
+  const sheetIdRef = useRef(null) // set once this job has been exported once this session
+  const folderIdRef = useRef(null)
+
+  async function callSheetsScript(payload) {
+    const res = await fetch(SHEETS_SCRIPT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // avoids CORS preflight against Apps Script
+      body: JSON.stringify(payload)
+    })
+    const data = await res.json()
+    if (data.error) throw new Error(data.error)
+    return data
+  }
+
+  async function exportJobToSheets() {
+    const roomPayload = rooms.map(r => {
+      const areaTotal = getRoomAreaTotal(r)
+      const lfTotal = getRoomLfTotal(r)
+      return {
+        roomNumber: r.name || '',   // app doesn't separate number/name today — see note
+        roomName: r.name || '',
+        sqFt: r.sqft || 0,
+        perimeter: r.perim || 0,
+        coating: roomCoatings[r.id] || '',
+        pricePerSf: parseCurrency(roomPrices[r.id] || '') || 0,
+        areaTotal: areaTotal,
+        doorsExcluded: getDoorCount(r),
+        doorWidth: getDoorWidth(r),
+        lfToPrice: getLfToPrice(r),
+        pricePerLf: parseCurrency(roomLfPrices[r.id] || '') || 0,
+        perimeterTotal: lfTotal,
+        roomTotal: areaTotal + lfTotal,
+        scheduleInfo: '', // reserved for the finish-schedule feature, not wired up yet
+        status: (areaTotal + lfTotal) > 0 ? 'Priced' : 'Pending'
+      }
+    })
+
+    const addonPayload = miscItems
+      .filter(i => i.label || i.amount)
+      .map(i => ({ name: i.label || '', price: parseCurrency(i.amount) || 0 }))
+
+    const jobPayload = {
+      jobName: jobName || 'Untitled Job',
+      address: '',
+      jobTotal: grandTotal,
+      rooms: roomPayload,
+      addons: addonPayload
+    }
+
+    if (!sheetIdRef.current) {
+      const created = await callSheetsScript({ action: 'createJob', job: jobPayload })
+      sheetIdRef.current = created.sheetId
+      folderIdRef.current = created.folderId
+    } else {
+      await callSheetsScript({ action: 'saveJob', job: { ...jobPayload, sheetId: sheetIdRef.current } })
+    }
+  }
+
   // Price/coating live only here, not in App's rooms/jobName/miscItems — so
   // they need their own watcher to tell the parent this job is now dirty
   // (this is what makes the "Report Saved" button and the New Job warning
@@ -2695,6 +2781,16 @@ const ResultsScreen = React.forwardRef(function ResultsScreen({ image, rooms, jo
       ctx.fillText('TopCoat Tech · Estimator', cappedImgW / 2, totalH - F * 0.5)
 
       await saveToPhotos(canvas, jobName || 'TopCoat-Blueprint')
+
+      // Sheets export — independent of the save above. If this fails (bad
+      // connection, script issue, etc.) the device image has already saved
+      // successfully and the user should never see this as a failure.
+      try {
+        await exportJobToSheets()
+      } catch (sheetsErr) {
+        console.error('Sheets export failed (device save still succeeded):', sheetsErr)
+      }
+
       if (onSaved) onSaved()
     } catch (err) {
       console.error('Save error:', err)
