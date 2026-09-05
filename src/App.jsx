@@ -2436,6 +2436,10 @@ const ResultsScreen = React.forwardRef(function ResultsScreen({ image, rooms, jo
       const created = await callSheetsScript({ action: 'createJob', job: jobPayload })
       sheetIdRef.current = created.sheetId
       folderIdRef.current = created.folderId
+      // createJob only sets up the Sheet's headers — it doesn't write the
+      // actual room/add-on data. Immediately save into the Sheet we just
+      // created so a first-time export isn't left with an empty Rooms tab.
+      await callSheetsScript({ action: 'saveJob', job: { ...jobPayload, sheetId: sheetIdRef.current } })
     } else {
       await callSheetsScript({ action: 'saveJob', job: { ...jobPayload, sheetId: sheetIdRef.current } })
     }
