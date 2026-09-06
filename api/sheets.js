@@ -9,21 +9,32 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
 
   try {
-    const response = await fetch(SHEETS_SCRIPT_URL, {
+    // Apps Script's /exec URL responds with a redirect to the real content.
+    // Letting fetch auto-follow this (redirect:'follow') can, outside a
+    // real browser session, end up landing on a Google Drive webpage
+    // instead of the script's actual output. Handling the redirect
+    // manually — following it ourselves as a plain GET-less second
+    // request — avoids that.
+    const first = await fetch(SHEETS_SCRIPT_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify(req.body),
-      redirect: 'follow' // Apps Script's /exec URL responds with a redirect to the real content
+      redirect: 'manual'
     })
-    const rawText = await response.text()
+
+    let finalResponse = first
+    const location = first.headers.get('location')
+    if (location) {
+      finalResponse = await fetch(location, { redirect: 'follow' })
+    }
+
+    const rawText = await finalResponse.text()
     try {
       const data = JSON.parse(rawText)
       return res.status(200).json(data)
     } catch (parseErr) {
-      // Google didn't return JSON — surface exactly what it did return
-      // (truncated) so we can see the real cause instead of guessing.
       return res.status(500).json({
-        error: 'Google returned non-JSON. HTTP status: ' + response.status,
+        error: 'Google returned non-JSON. HTTP status: ' + finalResponse.status,
         rawResponsePreview: rawText.slice(0, 1500)
       })
     }
