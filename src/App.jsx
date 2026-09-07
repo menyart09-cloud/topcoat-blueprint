@@ -652,8 +652,14 @@ async function straightenAndCropImage(src, angleRad) {
 }
 
 // ── Save blueprint image to photo album ───────────────────────
-async function saveToPhotos(canvasEl, jobName) {
-  const filename = `${(jobName||'TopCoat').replace(/[^a-zA-Z0-9]/g,'-')}-Report.jpg`
+async function saveToPhotos(canvasEl, jobName, jobNumber) {
+  const now = new Date()
+  const stamp = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }).replace(' ', '') +
+    '-' + now.toTimeString().slice(0, 5).replace(':', '')
+  const parts = [jobName || 'TopCoat']
+  if (jobNumber) parts.push(jobNumber)
+  parts.push(stamp)
+  const filename = `${parts.join('-').replace(/[^a-zA-Z0-9-]/g,'-')}-Report.jpg`
 
   // Build blob from canvas using toDataURL (more iOS-compatible than toBlob)
   const dataUrl = canvasEl.toDataURL('image/jpeg', 0.92)
@@ -870,7 +876,7 @@ function UploadScreen({ onFile, error, converting, convertProgress, jobName, set
 // Handles pinch-to-zoom + pan on mobile, Ctrl+wheel zoom + drag-pan on desktop.
 // Exposes centerOn(xAtZoom1, yAtZoom1, targetZoom) via ref for programmatic
 // centering (used by Move Corner to auto-center/zoom on a selected corner).
-const ZoomableBlueprint = React.forwardRef(function ZoomableBlueprint({ onTap, children, style, onZoomChange, renderOverlay, initialView, onViewChange, debug }, ref) {
+const ZoomableBlueprint = React.forwardRef(function ZoomableBlueprint({ onTap, children, style, onZoomChange, renderOverlay, initialView, onViewChange, debug, watermark }, ref) {
   const debugCounts = useRef({ touchStart: 0, touchMove1: 0, touchMove2: 0, mouseDown: 0, mouseMove: 0 })
   const [, forceDebugUpdate] = useState(0)
   const containerRef = useRef()
@@ -1192,6 +1198,15 @@ const ZoomableBlueprint = React.forwardRef(function ZoomableBlueprint({ onTap, c
         covering the same box — so it always matches the visible viewport
         regardless of scroll position, and markers inside it use plain pixel
         positioning rather than inheriting the content's CSS transform. */}
+    {/* Phase watermark — lives outside the zoom/pan transform like the
+        overlay above, so it stays centered and readable at any zoom
+        level. Kept at 5% opacity max and non-interactive so it never
+        gets in the way of reading the actual blueprint underneath. */}
+    {watermark && (
+      <div style={{ position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'center', pointerEvents:'none', overflow:'hidden' }}>
+        <span style={{ fontSize:'8vw', fontWeight:700, letterSpacing:4, color:'rgba(0,0,0,0.05)', whiteSpace:'nowrap' }}>{watermark}</span>
+      </div>
+    )}
     {renderOverlay && (
       <div style={{ position:'absolute', inset:0, overflow:'hidden', pointerEvents:'none' }}>
         {renderOverlay(toScreen)}
@@ -1378,7 +1393,7 @@ function CropScreen({ image, onDone, onSkip }) {
       <div style={{padding:'10px 14px',background:'#5b3fa8',color:'#fff',fontSize:14,fontWeight:600,display:'flex',alignItems:'center',gap:8,flexShrink:0}}>
         ✂️ CROP — pinch to zoom, drag corners to trim the photo
       </div>
-      <ZoomableBlueprint ref={blueprintCtrlRef} style={{height:'auto',minHeight:0,maxHeight:'75vh',maxWidth:1000,width:'100%',margin:'0 auto',aspectRatio:imgSize.w&&imgSize.h?`${imgSize.w} / ${imgSize.h}`:'4 / 3'}}
+      <ZoomableBlueprint ref={blueprintCtrlRef} watermark="CROP" style={{height:'auto',minHeight:0,maxHeight:'75vh',maxWidth:1000,width:'100%',margin:'0 auto',aspectRatio:imgSize.w&&imgSize.h?`${imgSize.w} / ${imgSize.h}`:'4 / 3'}}
         renderOverlay={toScreen => {
           const tl = toScreen(box.x, box.y, imgSize.w, imgSize.h)
           const br = toScreen(box.x+box.w, box.y+box.h, imgSize.w, imgSize.h)
@@ -1500,7 +1515,7 @@ function StraightenScreen({ image, onDone, onSkip, onRotate, blueprintView, setB
         </button>
       </div>
 
-      <ZoomableBlueprint onTap={handleTap} style={{flex:1,minHeight:0,maxHeight:'75vh',maxWidth:1000,width:'100%',margin:'0 auto'}} onZoomChange={setZoomLevel}
+      <ZoomableBlueprint onTap={handleTap} watermark="STRAIGHTEN" style={{flex:1,minHeight:0,maxHeight:'75vh',maxWidth:1000,width:'100%',margin:'0 auto'}} onZoomChange={setZoomLevel}
         initialView={blueprintView} onViewChange={setBlueprintView}
         renderOverlay={toScreen => (
           <>
@@ -1635,7 +1650,7 @@ function CalibrateScreen({ image, jobName, onDone, blueprintView, setBlueprintVi
       </div>
 
       {/* Zoomable blueprint - max height */}
-      <ZoomableBlueprint onTap={handleTap} style={{height:'auto',minHeight:0,maxHeight:'75vh',maxWidth:1000,width:'100%',margin:'0 auto',aspectRatio:imgSize.w&&imgSize.h?`${imgSize.w} / ${imgSize.h}`:'4 / 3'}} onZoomChange={setZoomLevel}
+      <ZoomableBlueprint onTap={handleTap} watermark="SCALE" style={{height:'auto',minHeight:0,maxHeight:'75vh',maxWidth:1000,width:'100%',margin:'0 auto',aspectRatio:imgSize.w&&imgSize.h?`${imgSize.w} / ${imgSize.h}`:'4 / 3'}} onZoomChange={setZoomLevel}
         initialView={blueprintView} onViewChange={setBlueprintView}
         renderOverlay={toScreen => (
           <>
@@ -2036,7 +2051,7 @@ const DrawScreen = React.forwardRef(function DrawScreen({ image, fracPerFt, aspe
       </div>
 
       {/* Zoomable pinch-to-zoom drawing area - fills all available space */}
-      <ZoomableBlueprint ref={blueprintCtrlRef} onTap={e=>{if(!naming&&!identifying)handleTap(e)}} style={{flex:1,maxHeight:'none',minHeight:0,maxWidth:1000,width:'100%',margin:'0 auto'}} onZoomChange={setZoomLevel}
+      <ZoomableBlueprint ref={blueprintCtrlRef} onTap={e=>{if(!naming&&!identifying)handleTap(e)}} watermark="TRACE" style={{flex:1,maxHeight:'none',minHeight:0,maxWidth:1000,width:'100%',margin:'0 auto'}} onZoomChange={setZoomLevel}
         initialView={blueprintView} onViewChange={setBlueprintView}
         renderOverlay={toScreen => (
           <>
@@ -2367,14 +2382,15 @@ const DrawScreen = React.forwardRef(function DrawScreen({ image, fracPerFt, aspe
 })
 
 // ── Results Screen ────────────────────────────────────────────
-const ResultsScreen = React.forwardRef(function ResultsScreen({ image, rooms, jobName, setJobName, fracPerFt, aspectRatio, labelSizeInches, miscItems, setMiscItems, reportSaved, onDirty, onReset, onEdit, onSaved, jobSheetId, setJobSheetId, jobFolderId, setJobFolderId }, ref) {
+const ResultsScreen = React.forwardRef(function ResultsScreen({ image, rooms, jobName, setJobName, fracPerFt, aspectRatio, labelSizeInches, miscItems, setMiscItems, reportSaved, jobSaved, onDirty, onReset, onEdit, onSaved, onJobSaved, jobSheetId, setJobSheetId, jobFolderId, setJobFolderId, jobNumber, setJobNumber }, ref) {
   const [editingJobName, setEditingJobName] = useState(false)
   const [pricingRoomId, setPricingRoomId] = useState(null) // which room's pricing card is expanded, if any
   const [jobNameDraft,   setJobNameDraft]   = useState(jobName)
-  React.useImperativeHandle(ref, () => ({ triggerSave: () => handleSave() }))
+  React.useImperativeHandle(ref, () => ({ triggerSave: () => handleSaveJob() }))
   const totalSqft  = Math.round(rooms.reduce((s,r)=>s+(r.sqft||0),0))
   const totalPerim = Math.round(rooms.reduce((s,r)=>s+(r.perim||0),0))
   const [saving,     setSaving]     = useState(false)
+  const [savingJob,  setSavingJob]  = useState(false)
   const [roomPrices, setRoomPrices] = useState({})  // { room.id: pricePerSqft string }
   const [roomCoatings, setRoomCoatings] = useState({}) // { room.id: coating name string }
   const [roomLfPrices, setRoomLfPrices] = useState({}) // { room.id: pricePerLf string } — for perimeter products like cove base
@@ -2442,12 +2458,51 @@ const ResultsScreen = React.forwardRef(function ResultsScreen({ image, rooms, jo
       const created = await callSheetsScript({ action: 'createJob', job: jobPayload })
       setJobSheetId(created.sheetId)
       setJobFolderId(created.folderId)
+      setJobNumber(created.jobNumber)
       // createJob only sets up the Sheet's headers — it doesn't write the
       // actual room/add-on data. Immediately save into the Sheet we just
       // created so a first-time export isn't left with an empty Rooms tab.
       await callSheetsScript({ action: 'saveJob', job: { ...jobPayload, sheetId: created.sheetId } })
     } else {
       await callSheetsScript({ action: 'saveJob', job: { ...jobPayload, sheetId: jobSheetId } })
+    }
+  }
+
+  async function handleSaveJob() {
+    setSavingJob(true)
+    try {
+      let sheetId = jobSheetId, folderId = jobFolderId
+      if (!sheetId) {
+        // A job must exist in Sheets before it can hold trace data — if
+        // this is the very first save of any kind for this job, create
+        // it first (same path exportJobToSheets would use).
+        const created = await callSheetsScript({ action: 'createJob', job: { jobName: jobName || 'Untitled Job', address: '' } })
+        sheetId = created.sheetId; folderId = created.folderId
+        setJobSheetId(sheetId); setJobFolderId(folderId); setJobNumber(created.jobNumber)
+      }
+      // Compress specifically for this save — resuming a trace only needs
+      // to be readable enough to see room boundaries and tap corners
+      // accurately, not full print resolution. Keeps this well under
+      // Vercel's ~4.5MB request body limit regardless of how large the
+      // original scan was.
+      const compressedBase64 = await compressImage(image.base64, 'image/jpeg', 0.5)
+      await callSheetsScript({
+        action: 'saveJobTrace',
+        job: {
+          sheetId, folderId,
+          jobName: jobName || 'Untitled Job',
+          imageBase64: compressedBase64,
+          rooms: rooms,
+          fracPerFt: fracPerFt,
+          aspectRatio: aspectRatio
+        }
+      })
+      if (onJobSaved) onJobSaved()
+    } catch (err) {
+      console.error('Save Job failed:', err)
+      alert('Save Job failed — your work is still on screen, nothing was lost. Check your connection and try again.')
+    } finally {
+      setSavingJob(false)
     }
   }
 
@@ -2790,7 +2845,7 @@ const ResultsScreen = React.forwardRef(function ResultsScreen({ image, rooms, jo
       ctx.textAlign = 'center'
       ctx.fillText('TopCoat Tech · Estimator', cappedImgW / 2, totalH - F * 0.5)
 
-      await saveToPhotos(canvas, jobName || 'TopCoat-Blueprint')
+      await saveToPhotos(canvas, jobName || 'TopCoat-Blueprint', jobNumber)
 
       // Sheets export — independent of the save above. If this fails (bad
       // connection, script issue, etc.) the device image has already saved
@@ -3084,10 +3139,15 @@ const ResultsScreen = React.forwardRef(function ResultsScreen({ image, rooms, jo
         ⚠️ <strong>Verify on site before ordering materials.</strong> Accuracy depends on calibration precision.
       </div>
 
-      {/* Save button */}
+      {/* Save Job — the one that matters for not losing the ability to reopen and keep tracing. This is the button that blocks closing when unsaved, not Export Report. */}
+      <button onClick={handleSaveJob} disabled={savingJob}
+        style={{width:'100%',padding:'15px',background:jobSaved?'#2e7d32':savingJob?'#888':ORANGE,color:'#fff',border:'none',borderRadius:10,fontSize:15,fontWeight:700,cursor:savingJob?'not-allowed':'pointer',marginBottom:10}}>
+        {jobSaved ? '✓ Job Saved!' : savingJob ? 'Saving Job…' : '💾 Save Job'}
+      </button>
+      {/* Export Report — device photo + Sheets pricing export, same as before, just renamed */}
       <button onClick={handleSave} disabled={saving}
         style={{width:'100%',padding:'15px',background:reportSaved?'#2e7d32':saving?'#888':ORANGE,color:'#fff',border:'none',borderRadius:10,fontSize:15,fontWeight:700,cursor:saving?'not-allowed':'pointer',marginBottom:10}}>
-        {reportSaved ? '✓ Report Saved!' : saving ? 'Building Report…' : '📸 Save Report'}
+        {reportSaved ? '✓ Report Exported!' : saving ? 'Building Report…' : '📤 Export Report'}
       </button>
       <button onClick={onEdit} style={{width:'100%',padding:'12px',background:'transparent',color:ORANGE,border:`2px solid ${ORANGE}`,borderRadius:10,fontSize:14,fontWeight:700,cursor:'pointer',marginBottom:10}}>← Edit Rooms</button>
       <button onClick={onReset} style={{width:'100%',padding:'12px',background:'transparent',border:'1px solid #ddd',borderRadius:8,fontSize:13,color:'#888',cursor:'pointer'}}>↺ New Job</button>
@@ -3125,6 +3185,7 @@ export default function App() {
   // creating a duplicate job folder on the next save.
   const [jobSheetId,   setJobSheetId]   = useState(null)
   const [jobFolderId,  setJobFolderId]  = useState(null)
+  const [jobNumber,    setJobNumber]    = useState(null) // assigned by Sheets on first export; used to disambiguate device-image filenames on repeat saves
   const [error,       setError]       = useState('')
   const [converting,  setConverting]  = useState(false)
   const [convertProgress, setConvertProgress] = useState(null) // {current,total} while generating PDF page previews
@@ -3137,7 +3198,8 @@ export default function App() {
   // step genuinely changes the image's pixel dimensions between screens.
   const [blueprintView, setBlueprintView] = useState(null)
   const resultsScreenRef = useRef() // lets New Job trigger a save remotely if the user chooses to
-  const [reportSaved, setReportSaved] = useState(false) // true once the CURRENT state of the job has been saved
+  const [reportSaved, setReportSaved] = useState(false) // true once Export Report reflects the CURRENT state — does NOT block closing
+  const [jobSaved,    setJobSaved]    = useState(false) // true once Save Job reflects the CURRENT state — THIS is what blocks closing
   const [hasSavedOnce, setHasSavedOnce] = useState(false) // true once ANY save has happened this job — picks which warning copy to show
   const [unsavedWarning, setUnsavedWarning] = useState(null) // null | 'unsaved' — controls the New Job warning modal
   const firstRoomsRender = useRef(true)
@@ -3228,8 +3290,8 @@ export default function App() {
   function performReset() {
     setScreen('upload'); setImage(null); setFracPerFt(null); setRooms([]); setError(''); setConverting(false)
     setJobName(''); setPdfPicker(null); setLabelSizeInches(DEFAULT_LABEL_SIZE_INCHES); setMiscItems([])
-    setReportSaved(false); setHasSavedOnce(false); setUnsavedWarning(null); setBlueprintView(null)
-    setJobSheetId(null); setJobFolderId(null) // starting fresh must not carry over the last job's Sheet
+    setReportSaved(false); setJobSaved(false); setHasSavedOnce(false); setUnsavedWarning(null); setBlueprintView(null)
+    setJobSheetId(null); setJobFolderId(null); setJobNumber(null) // starting fresh must not carry over the last job's Sheet
   }
 
   function reset() {
@@ -3237,7 +3299,7 @@ export default function App() {
       if (!window.confirm("You're mid-edit on a room. Start a new job anyway? Any un-saved changes will be discarded.")) return
       drawScreenRef.current.cancelActiveRoomEdit()
     }
-    if (rooms.length > 0 && !reportSaved) { setUnsavedWarning('unsaved'); return }
+    if (rooms.length > 0 && !jobSaved) { setUnsavedWarning('unsaved'); return }
     // Covers the earlier stages (Straighten/Calibrate) — no rooms traced
     // yet, so the checks above don't apply, but there's still a real
     // uploaded blueprint (and maybe calibration) that would be lost.
@@ -3258,21 +3320,21 @@ export default function App() {
       {screen==='straighten' && <StraightenScreen image={image} onDone={handleStraightenDone} onSkip={()=>setScreen('calibrate')} onRotate={handleRotateImage} blueprintView={blueprintView} setBlueprintView={setBlueprintView} />}
       {screen==='calibrate' && <CalibrateScreen image={image} jobName={jobName} onDone={handleCalibrateDone} blueprintView={blueprintView} setBlueprintView={setBlueprintView} />}
       {screen==='draw'      && <DrawScreen      ref={drawScreenRef} image={image} fracPerFt={fracPerFt} aspectRatio={aspectRatio} rooms={rooms} jobName={jobName} onAddRoom={r=>setRooms(p=>[...p,r])} onRemoveRoom={id=>setRooms(p=>p.filter(r=>r.id!==id))} onUpdateRoom={(id,patch)=>setRooms(p=>p.map(r=>r.id===id?{...r,...patch}:r))} onFinish={()=>setScreen('results')} labelSizeInches={labelSizeInches} setLabelSizeInches={setLabelSizeInches} blueprintView={blueprintView} setBlueprintView={setBlueprintView} />}
-      {screen==='results'   && <ResultsScreen   ref={resultsScreenRef} image={image} rooms={rooms} jobName={jobName} setJobName={setJobName} fracPerFt={fracPerFt} aspectRatio={aspectRatio} labelSizeInches={labelSizeInches} miscItems={miscItems} setMiscItems={setMiscItems} reportSaved={reportSaved} onDirty={()=>setReportSaved(false)} onReset={reset} onEdit={()=>setScreen('draw')} onSaved={()=>{ setReportSaved(true); setHasSavedOnce(true) }} jobSheetId={jobSheetId} setJobSheetId={setJobSheetId} jobFolderId={jobFolderId} setJobFolderId={setJobFolderId} />}
+      {screen==='results'   && <ResultsScreen   ref={resultsScreenRef} image={image} rooms={rooms} jobName={jobName} setJobName={setJobName} fracPerFt={fracPerFt} aspectRatio={aspectRatio} labelSizeInches={labelSizeInches} miscItems={miscItems} setMiscItems={setMiscItems} reportSaved={reportSaved} jobSaved={jobSaved} onDirty={()=>{ setReportSaved(false); setJobSaved(false) }} onReset={reset} onEdit={()=>setScreen('draw')} onSaved={()=>{ setReportSaved(true); setHasSavedOnce(true) }} onJobSaved={()=>{ setJobSaved(true); setHasSavedOnce(true) }} jobSheetId={jobSheetId} setJobSheetId={setJobSheetId} jobFolderId={jobFolderId} setJobFolderId={setJobFolderId} jobNumber={jobNumber} setJobNumber={setJobNumber} />}
       {unsavedWarning && (
         <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.45)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:100,padding:20}}
           onClick={()=>setUnsavedWarning(null)}>
           <div style={{background:'#fff',borderRadius:14,padding:20,width:'100%',maxWidth:320}} onClick={e=>e.stopPropagation()}>
             <div style={{width:40,height:40,borderRadius:'50%',background:'#fff3e0',display:'flex',alignItems:'center',justifyContent:'center',marginBottom:12,fontSize:18}}>⚠️</div>
-            <div style={{fontSize:15,fontWeight:700,color:'#222',marginBottom:6}}>Unsaved report</div>
+            <div style={{fontSize:15,fontWeight:700,color:'#222',marginBottom:6}}>Unsaved job</div>
             <div style={{fontSize:13,color:'#888',marginBottom:18,lineHeight:1.5}}>
               {hasSavedOnce
-                ? "You've made changes since you last saved this report. Starting a new job will discard those changes."
-                : "This job's report hasn't been saved yet. Starting a new job will discard it."}
+                ? "You've made changes since you last saved this job. Starting a new job will discard those changes and you won't be able to come back to this one."
+                : "This job hasn't been saved yet. Starting a new job will discard it and you won't be able to come back to it."}
             </div>
             <button onClick={()=>{ setUnsavedWarning(null); if (screen==='results') { resultsScreenRef.current?.triggerSave() } else { setScreen('results') } }}
               style={{width:'100%',padding:11,background:ORANGE,color:'#fff',border:'none',borderRadius:8,fontSize:14,fontWeight:700,cursor:'pointer',marginBottom:8}}>
-              Save Report First
+              Save Job First
             </button>
             <button onClick={performReset}
               style={{width:'100%',padding:11,background:'transparent',border:'1.5px solid #f5c6c6',color:'#c62828',borderRadius:8,fontSize:14,fontWeight:700,cursor:'pointer',marginBottom:8}}>
