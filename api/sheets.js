@@ -3,7 +3,7 @@
 // script.google.com directly gets blocked — this endpoint calls Google
 // server-to-server instead, which isn't subject to that browser
 // restriction, and just passes the result back to the client.
-const SHEETS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycby6mroK1sC0_FRUiWQpjeEQg4wbwj78BKySdUAn748TAePGFGY2aWE8Hl7N7IQ5dtqF4g/exec'
+const SHEETS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwf5EkVtRyVNSKPQvP9BoDVBjGuxlHJ42qx5eLjcmnM4moDhkiYD0-SDBYQ7qrp1QVSLw/exec'
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
