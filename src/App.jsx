@@ -743,7 +743,7 @@ function Header({ screen, onBack, onReset }) {
 }
 
 // ── Upload Screen ─────────────────────────────────────────────
-function UploadScreen({ onFile, error, converting, convertProgress, jobName, setJobName }) {
+function UploadScreen({ onFile, error, converting, convertProgress, jobName, setJobName, onReviewJobs }) {
   const [drag, setDrag] = useState(false)
   const uploadRef = useRef()
   const cameraRef = useRef()
@@ -825,6 +825,10 @@ function UploadScreen({ onFile, error, converting, convertProgress, jobName, set
           placeholder="e.g. Smith Residence, 123 Main St"
           style={{width:'100%',padding:'10px 14px',fontSize:15,border:'2px solid #ddd',borderRadius:8,outline:'none',boxSizing:'border-box'}} />
       </div>
+
+      <button onClick={onReviewJobs} style={{ width:'100%', padding:'12px', background:'#fff', color:'#444', border:'1.5px solid #ddd', borderRadius:12, fontSize:14, fontWeight:600, cursor:'pointer', marginBottom:12 }}>
+        📂 Review Jobs
+      </button>
 
       <button onClick={() => cameraRef.current?.click()} style={{ width:'100%', padding:'16px', background:ORANGE, color:'#fff', border:'none', borderRadius:14, fontSize:16, fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:10, marginBottom:12, boxShadow:'0 4px 16px rgba(0,119,182,0.35)' }}>
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
@@ -2382,7 +2386,7 @@ const DrawScreen = React.forwardRef(function DrawScreen({ image, fracPerFt, aspe
 })
 
 // ── Results Screen ────────────────────────────────────────────
-const ResultsScreen = React.forwardRef(function ResultsScreen({ image, rooms, jobName, setJobName, fracPerFt, aspectRatio, labelSizeInches, miscItems, setMiscItems, reportSaved, jobSaved, onDirty, onReset, onEdit, onSaved, onJobSaved, jobSheetId, setJobSheetId, jobFolderId, setJobFolderId, jobNumber, setJobNumber }, ref) {
+const ResultsScreen = React.forwardRef(function ResultsScreen({ image, rooms, jobName, setJobName, fracPerFt, aspectRatio, labelSizeInches, miscItems, setMiscItems, reportSaved, jobSaved, onReset, onEdit, onSaved, onJobSaved, currentJobId, setCurrentJobId, jobNumber, setJobNumber, roomPrices, setRoomPrices, roomCoatings, setRoomCoatings, roomLfPrices, setRoomLfPrices, roomDoorCounts, setRoomDoorCounts, roomDoorWidths, setRoomDoorWidths }, ref) {
   const [editingJobName, setEditingJobName] = useState(false)
   const [pricingRoomId, setPricingRoomId] = useState(null) // which room's pricing card is expanded, if any
   const [jobNameDraft,   setJobNameDraft]   = useState(jobName)
@@ -2391,112 +2395,55 @@ const ResultsScreen = React.forwardRef(function ResultsScreen({ image, rooms, jo
   const totalPerim = Math.round(rooms.reduce((s,r)=>s+(r.perim||0),0))
   const [saving,     setSaving]     = useState(false)
   const [savingJob,  setSavingJob]  = useState(false)
-  const [roomPrices, setRoomPrices] = useState({})  // { room.id: pricePerSqft string }
-  const [roomCoatings, setRoomCoatings] = useState({}) // { room.id: coating name string }
-  const [roomLfPrices, setRoomLfPrices] = useState({}) // { room.id: pricePerLf string } — for perimeter products like cove base
-  const [roomDoorCounts, setRoomDoorCounts] = useState({}) // { room.id: number of doorways to exclude }
-  const [roomDoorWidths, setRoomDoorWidths] = useState({}) // { room.id: standard door width in ft, default 3 }
 
-  // ── Sheets export (additive — never blocks the existing device-image save) ──
-  // Calls our own /api/sheets endpoint, which forwards to the Apps Script
-  // server-to-server — calling Google's script URL directly from the
-  // browser gets blocked by CORS, since Apps Script doesn't reliably send
-  // the headers browsers require for cross-origin JS to read the response.
-
-  async function callSheetsScript(payload) {
-    const res = await fetch('/api/sheets', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    })
-    const data = await res.json()
-    if (data.error) {
-      // TEMPORARY — surfaces the real Google response for debugging.
-      // Remove this once the export is confirmed working reliably.
-      if (data.rawResponsePreview) console.error('DEBUG — Google said:\n' + data.rawResponsePreview)
-      throw new Error(data.error)
-    }
-    return data
-  }
-
-  async function exportJobToSheets() {
-    const roomPayload = rooms.map(r => {
-      const areaTotal = getRoomAreaTotal(r)
-      const lfTotal = getRoomLfTotal(r)
-      return {
-        roomNumber: r.name || '',   // app doesn't separate number/name today — see note
-        roomName: r.name || '',
-        sqFt: r.sqft || 0,
-        perimeter: r.perim || 0,
-        coating: roomCoatings[r.id] || '',
-        pricePerSf: parseCurrency(roomPrices[r.id] || '') || 0,
-        areaTotal: areaTotal,
-        doorsExcluded: getDoorCount(r),
-        doorWidth: getDoorWidth(r),
-        lfToPrice: getLfToPrice(r),
-        pricePerLf: parseCurrency(roomLfPrices[r.id] || '') || 0,
-        perimeterTotal: lfTotal,
-        roomTotal: areaTotal + lfTotal,
-        scheduleInfo: '', // reserved for the finish-schedule feature, not wired up yet
-        status: (areaTotal + lfTotal) > 0 ? 'Priced' : 'Pending'
-      }
-    })
-
-    const addonPayload = miscItems
-      .filter(i => i.label || i.amount)
-      .map(i => ({ name: i.label || '', price: parseCurrency(i.amount) || 0 }))
-
-    const jobPayload = {
-      jobName: jobName || 'Untitled Job',
-      address: '',
-      jobTotal: grandTotal,
-      rooms: roomPayload,
-      addons: addonPayload
-    }
-
-    if (!jobSheetId) {
-      const created = await callSheetsScript({ action: 'createJob', job: jobPayload })
-      setJobSheetId(created.sheetId)
-      setJobFolderId(created.folderId)
-      setJobNumber(created.jobNumber)
-      // createJob only sets up the Sheet's headers — it doesn't write the
-      // actual room/add-on data. Immediately save into the Sheet we just
-      // created so a first-time export isn't left with an empty Rooms tab.
-      await callSheetsScript({ action: 'saveJob', job: { ...jobPayload, sheetId: created.sheetId } })
-    } else {
-      await callSheetsScript({ action: 'saveJob', job: { ...jobPayload, sheetId: jobSheetId } })
-    }
-  }
-
+  // ── Save Job — persists geometry + calibration + pricing together to
+  // Postgres via /api/jobs, so reopening a saved job restores everything
+  // in one shot instead of the old split between a trace-only save and a
+  // pricing-only Sheets export.
   async function handleSaveJob() {
     setSavingJob(true)
     try {
-      let sheetId = jobSheetId, folderId = jobFolderId
-      if (!sheetId) {
-        // A job must exist in Sheets before it can hold trace data — if
-        // this is the very first save of any kind for this job, create
-        // it first (same path exportJobToSheets would use).
-        const created = await callSheetsScript({ action: 'createJob', job: { jobName: jobName || 'Untitled Job', address: '' } })
-        sheetId = created.sheetId; folderId = created.folderId
-        setJobSheetId(sheetId); setJobFolderId(folderId); setJobNumber(created.jobNumber)
-      }
       // Compress specifically for this save — resuming a trace only needs
       // to be readable enough to see room boundaries and tap corners
       // accurately, not full print resolution. Keeps this well under
       // Vercel's ~4.5MB request body limit regardless of how large the
       // original scan was.
       const compressedBase64 = await compressImage(image.base64, 'image/jpeg', 0.5)
-      await callSheetsScript({
-        action: 'saveJobTrace',
-        job: {
-          sheetId, folderId,
-          jobName: jobName || 'Untitled Job',
-          imageBase64: compressedBase64,
-          rooms: rooms,
-          fracPerFt: fracPerFt,
-          aspectRatio: aspectRatio
-        }
+      const roomPayload = rooms.map(r => ({
+        id: r.id,
+        name: r.name || '',
+        sqft: r.sqft || 0,
+        perim: r.perim || 0,
+        points: r.points || [],
+        color: r.color || {},
+        pricePerSf: parseCurrency(roomPrices[r.id] || '') || null,
+        coating: roomCoatings[r.id] || '',
+        pricePerLf: parseCurrency(roomLfPrices[r.id] || '') || null,
+        doorsExcluded: getDoorCount(r),
+        doorWidthFt: getDoorWidth(r)
+      }))
+      const res = await fetch('/api/jobs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'save',
+          job: {
+            id: currentJobId,
+            jobName: jobName || 'Untitled Job',
+            address: '',
+            fracPerFt, aspectRatio, labelSizeInches,
+            imageBase64: compressedBase64,
+            imageMime: 'image/jpeg',
+            jobTotal: grandTotal,
+            miscItems
+          },
+          rooms: roomPayload
+        })
       })
+      const data = await res.json()
+      if (data.error) throw new Error(data.error)
+      setCurrentJobId(data.id)
+      setJobNumber(data.jobNumber)
       if (onJobSaved) onJobSaved()
     } catch (err) {
       console.error('Save Job failed:', err)
@@ -2506,16 +2453,6 @@ const ResultsScreen = React.forwardRef(function ResultsScreen({ image, rooms, jo
     }
   }
 
-  // Price/coating live only here, not in App's rooms/jobName/miscItems — so
-  // they need their own watcher to tell the parent this job is now dirty
-  // (this is what makes the "Report Saved" button and the New Job warning
-  // correctly go stale again after changing a price, not just after
-  // editing a room).
-  const firstDirtyCheck = useRef(true)
-  useEffect(() => {
-    if (firstDirtyCheck.current) { firstDirtyCheck.current = false; return }
-    if (onDirty) onDirty()
-  }, [roomPrices, roomCoatings, roomLfPrices, roomDoorCounts, roomDoorWidths])
   const getDoorWidth = (room) => { const w = parseCurrency(roomDoorWidths[room.id]); return (!isNaN(w) && w >= 0) ? w : 3 }
   const getDoorCount = (room) => { const c = parseInt(roomDoorCounts[room.id], 10); return (!isNaN(c) && c >= 0) ? c : 0 }
   const getLfToPrice = (room) => Math.max((room.perim || 0) - getDoorCount(room) * getDoorWidth(room), 0)
@@ -2847,15 +2784,6 @@ const ResultsScreen = React.forwardRef(function ResultsScreen({ image, rooms, jo
 
       await saveToPhotos(canvas, jobName || 'TopCoat-Blueprint', jobNumber)
 
-      // Sheets export — independent of the save above. If this fails (bad
-      // connection, script issue, etc.) the device image has already saved
-      // successfully and the user should never see this as a failure.
-      try {
-        await exportJobToSheets()
-      } catch (sheetsErr) {
-        console.error('Sheets export failed (device save still succeeded):', sheetsErr)
-      }
-
       if (onSaved) onSaved()
     } catch (err) {
       console.error('Save error:', err)
@@ -3178,14 +3106,23 @@ export default function App() {
   const [miscItems, setMiscItems] = useState([]) // flat-dollar line items not tied to sq ft — [{id, label, amount}]
   const [rooms,       setRooms]       = useState([])
   const [jobName,     setJobName]     = useState('')
-  // Tracks which Sheet this job has already been exported to, if any.
+  // Per-room pricing — keyed by room.id, lives at this top level (not inside
+  // ResultsScreen) so it survives navigating Results -> Draw -> Results, same
+  // reasoning as rooms/jobName above.
+  const [roomPrices, setRoomPrices] = useState({})  // { room.id: pricePerSqft string }
+  const [roomCoatings, setRoomCoatings] = useState({}) // { room.id: coating name string }
+  const [roomLfPrices, setRoomLfPrices] = useState({}) // { room.id: pricePerLf string } — for perimeter products like cove base
+  const [roomDoorCounts, setRoomDoorCounts] = useState({}) // { room.id: number of doorways to exclude }
+  const [roomDoorWidths, setRoomDoorWidths] = useState({}) // { room.id: standard door width in ft, default 3 }
+  // Tracks which Postgres job row this job has already been saved to, if any.
   // Lives at this top level (not inside ResultsScreen) specifically so it
   // survives navigating away from Results and back — e.g. going back to
   // Draw to fix a room — without losing track of the job and accidentally
-  // creating a duplicate job folder on the next save.
-  const [jobSheetId,   setJobSheetId]   = useState(null)
-  const [jobFolderId,  setJobFolderId]  = useState(null)
-  const [jobNumber,    setJobNumber]    = useState(null) // assigned by Sheets on first export; used to disambiguate device-image filenames on repeat saves
+  // creating a duplicate job on the next save.
+  const [currentJobId, setCurrentJobId] = useState(null)
+  const [jobNumber,    setJobNumber]    = useState(null) // assigned by Postgres on first save; used to disambiguate device-image filenames on repeat saves
+  const [showJobsList, setShowJobsList] = useState(false)
+  const [jobsList,     setJobsList]     = useState(null) // null = not yet loaded
   const [error,       setError]       = useState('')
   const [converting,  setConverting]  = useState(false)
   const [convertProgress, setConvertProgress] = useState(null) // {current,total} while generating PDF page previews
@@ -3203,7 +3140,9 @@ export default function App() {
   const [hasSavedOnce, setHasSavedOnce] = useState(false) // true once ANY save has happened this job — picks which warning copy to show
   const [unsavedWarning, setUnsavedWarning] = useState(null) // null | 'unsaved' — controls the New Job warning modal
   const firstRoomsRender = useRef(true)
+  const skipNextDirtyCheck = useRef(false) // set by loadJob() — restoring a saved job's state isn't "dirtying" it
   useEffect(() => {
+    if (skipNextDirtyCheck.current) { skipNextDirtyCheck.current = false; return }
     // Any change to the rooms, job name, or label size after a save means
     // that save no longer reflects what's on screen — re-arm the warning
     // rather than silently letting it go stale. This lives at the App
@@ -3214,7 +3153,8 @@ export default function App() {
     // component's perspective the new value was already there on mount.
     if (firstRoomsRender.current) { firstRoomsRender.current = false; return }
     setReportSaved(false)
-  }, [rooms, jobName, miscItems, labelSizeInches])
+    setJobSaved(false)
+  }, [rooms, jobName, miscItems, labelSizeInches, roomPrices, roomCoatings, roomLfPrices, roomDoorCounts, roomDoorWidths])
 
   const handleFile = useCallback((payload) => {
     if (payload.loading) { setConverting(true); setError(''); setConvertProgress(payload.progress || null); return }
@@ -3291,7 +3231,61 @@ export default function App() {
     setScreen('upload'); setImage(null); setFracPerFt(null); setRooms([]); setError(''); setConverting(false)
     setJobName(''); setPdfPicker(null); setLabelSizeInches(DEFAULT_LABEL_SIZE_INCHES); setMiscItems([])
     setReportSaved(false); setJobSaved(false); setHasSavedOnce(false); setUnsavedWarning(null); setBlueprintView(null)
-    setJobSheetId(null); setJobFolderId(null); setJobNumber(null) // starting fresh must not carry over the last job's Sheet
+    setRoomPrices({}); setRoomCoatings({}); setRoomLfPrices({}); setRoomDoorCounts({}); setRoomDoorWidths({})
+    setCurrentJobId(null); setJobNumber(null) // starting fresh must not carry over the last job's id
+  }
+
+  // ── Review Jobs — list + reopen a previously saved job ──
+  async function openJobsList() {
+    setShowJobsList(true)
+    try {
+      const res = await fetch('/api/jobs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'list' }) })
+      const data = await res.json()
+      setJobsList(data.jobs || [])
+    } catch (err) {
+      console.error('Failed to load jobs list:', err)
+      setJobsList([])
+    }
+  }
+
+  async function loadJob(id) {
+    try {
+      const res = await fetch('/api/jobs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'get', id }) })
+      const data = await res.json()
+      if (data.error || !data.job) throw new Error(data.error || 'Job not found')
+      const { job, rooms: dbRooms } = data
+
+      skipNextDirtyCheck.current = true
+      setImage(job.imageBase64 ? { src: `data:${job.imageMime || 'image/jpeg'};base64,${job.imageBase64}`, base64: job.imageBase64, mime: job.imageMime || 'image/jpeg' } : null)
+      setFracPerFt(job.fracPerFt)
+      setAspectRatio(job.aspectRatio)
+      setLabelSizeInches(job.labelSizeInches || DEFAULT_LABEL_SIZE_INCHES)
+      setJobName(job.jobName || '')
+      setMiscItems(job.miscItems || [])
+
+      const nextPrices = {}, nextCoatings = {}, nextLfPrices = {}, nextDoorCounts = {}, nextDoorWidths = {}
+      const nextRooms = dbRooms.map(r => {
+        if (r.pricePerSf != null) nextPrices[r.id] = String(r.pricePerSf)
+        if (r.coating) nextCoatings[r.id] = r.coating
+        if (r.pricePerLf != null) nextLfPrices[r.id] = String(r.pricePerLf)
+        if (r.doorsExcluded) nextDoorCounts[r.id] = String(r.doorsExcluded)
+        if (r.doorWidthFt != null) nextDoorWidths[r.id] = String(r.doorWidthFt)
+        return { id: r.id, name: r.name, sqft: r.sqft, perim: r.perim, points: r.points, color: r.color }
+      })
+      setRooms(nextRooms)
+      setRoomPrices(nextPrices); setRoomCoatings(nextCoatings); setRoomLfPrices(nextLfPrices)
+      setRoomDoorCounts(nextDoorCounts); setRoomDoorWidths(nextDoorWidths)
+
+      setCurrentJobId(job.id)
+      setJobNumber(job.jobNumber)
+      setBlueprintView(null)
+      setReportSaved(false); setJobSaved(true); setHasSavedOnce(true)
+      setShowJobsList(false)
+      setScreen('results')
+    } catch (err) {
+      console.error('Failed to load job:', err)
+      alert('Could not open that job. Check your connection and try again.')
+    }
   }
 
   function reset() {
@@ -3314,13 +3308,13 @@ export default function App() {
     <div style={{ minHeight:'100vh', background:'#f4f4f2' }}>
       <style>{`@keyframes spin{to{transform:rotate(360deg)}} .fade-in{animation:fadeIn 0.3s ease forwards} @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}`}</style>
       <Header screen={screen} onBack={handleBack} onReset={reset} />
-      {screen==='upload'    && <UploadScreen    onFile={handleFile} error={error} converting={converting} convertProgress={convertProgress} jobName={jobName} setJobName={setJobName} />}
+      {screen==='upload'    && <UploadScreen    onFile={handleFile} error={error} converting={converting} convertProgress={convertProgress} jobName={jobName} setJobName={setJobName} onReviewJobs={openJobsList} />}
       {screen==='crop'      && <CropScreen      image={image} onDone={handleCropDone} onSkip={()=>setScreen('straighten')} />}
       {screen==='pdfPages'  && pdfPicker && <PdfPageScreen thumbnails={pdfPicker.thumbnails} buffer={pdfPicker.buffer} pdfName={pdfPicker.name} pdfSize={pdfPicker.size} jobName={jobName} onImported={handlePdfPageImported} />}
       {screen==='straighten' && <StraightenScreen image={image} onDone={handleStraightenDone} onSkip={()=>setScreen('calibrate')} onRotate={handleRotateImage} blueprintView={blueprintView} setBlueprintView={setBlueprintView} />}
       {screen==='calibrate' && <CalibrateScreen image={image} jobName={jobName} onDone={handleCalibrateDone} blueprintView={blueprintView} setBlueprintView={setBlueprintView} />}
       {screen==='draw'      && <DrawScreen      ref={drawScreenRef} image={image} fracPerFt={fracPerFt} aspectRatio={aspectRatio} rooms={rooms} jobName={jobName} onAddRoom={r=>setRooms(p=>[...p,r])} onRemoveRoom={id=>setRooms(p=>p.filter(r=>r.id!==id))} onUpdateRoom={(id,patch)=>setRooms(p=>p.map(r=>r.id===id?{...r,...patch}:r))} onFinish={()=>setScreen('results')} labelSizeInches={labelSizeInches} setLabelSizeInches={setLabelSizeInches} blueprintView={blueprintView} setBlueprintView={setBlueprintView} />}
-      {screen==='results'   && <ResultsScreen   ref={resultsScreenRef} image={image} rooms={rooms} jobName={jobName} setJobName={setJobName} fracPerFt={fracPerFt} aspectRatio={aspectRatio} labelSizeInches={labelSizeInches} miscItems={miscItems} setMiscItems={setMiscItems} reportSaved={reportSaved} jobSaved={jobSaved} onDirty={()=>{ setReportSaved(false); setJobSaved(false) }} onReset={reset} onEdit={()=>setScreen('draw')} onSaved={()=>{ setReportSaved(true); setHasSavedOnce(true) }} onJobSaved={()=>{ setJobSaved(true); setHasSavedOnce(true) }} jobSheetId={jobSheetId} setJobSheetId={setJobSheetId} jobFolderId={jobFolderId} setJobFolderId={setJobFolderId} jobNumber={jobNumber} setJobNumber={setJobNumber} />}
+      {screen==='results'   && <ResultsScreen   ref={resultsScreenRef} image={image} rooms={rooms} jobName={jobName} setJobName={setJobName} fracPerFt={fracPerFt} aspectRatio={aspectRatio} labelSizeInches={labelSizeInches} miscItems={miscItems} setMiscItems={setMiscItems} reportSaved={reportSaved} jobSaved={jobSaved} onReset={reset} onEdit={()=>setScreen('draw')} onSaved={()=>{ setReportSaved(true); setHasSavedOnce(true) }} onJobSaved={()=>{ setJobSaved(true); setHasSavedOnce(true) }} currentJobId={currentJobId} setCurrentJobId={setCurrentJobId} jobNumber={jobNumber} setJobNumber={setJobNumber} roomPrices={roomPrices} setRoomPrices={setRoomPrices} roomCoatings={roomCoatings} setRoomCoatings={setRoomCoatings} roomLfPrices={roomLfPrices} setRoomLfPrices={setRoomLfPrices} roomDoorCounts={roomDoorCounts} setRoomDoorCounts={setRoomDoorCounts} roomDoorWidths={roomDoorWidths} setRoomDoorWidths={setRoomDoorWidths} />}
       {unsavedWarning && (
         <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.45)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:100,padding:20}}
           onClick={()=>setUnsavedWarning(null)}>
@@ -3343,6 +3337,26 @@ export default function App() {
             <button onClick={()=>setUnsavedWarning(null)} style={{width:'100%',padding:11,background:'transparent',border:'none',color:'#888',fontSize:14,cursor:'pointer'}}>
               Cancel
             </button>
+          </div>
+        </div>
+      )}
+      {showJobsList && (
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.45)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:100,padding:20}}
+          onClick={()=>setShowJobsList(false)}>
+          <div style={{background:'#fff',borderRadius:14,padding:20,width:'100%',maxWidth:400,maxHeight:'80vh',overflowY:'auto'}} onClick={e=>e.stopPropagation()}>
+            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14}}>
+              <div style={{fontSize:15,fontWeight:700,color:'#222'}}>Review Jobs</div>
+              <button onClick={()=>setShowJobsList(false)} style={{background:'transparent',border:'none',color:'#888',fontSize:20,cursor:'pointer',lineHeight:1}}>×</button>
+            </div>
+            {jobsList === null && <div style={{textAlign:'center',color:'#999',fontSize:13,padding:'20px 0'}}>Loading…</div>}
+            {jobsList && jobsList.length === 0 && <div style={{textAlign:'center',color:'#999',fontSize:13,padding:'20px 0'}}>No saved jobs yet.</div>}
+            {jobsList && jobsList.map(j => (
+              <button key={j.id} onClick={()=>loadJob(j.id)}
+                style={{display:'block',width:'100%',textAlign:'left',background:'#f8f8f7',border:'1px solid #eee',borderRadius:10,padding:'12px 14px',marginBottom:8,cursor:'pointer'}}>
+                <div style={{fontWeight:700,fontSize:14,color:'#222'}}>{j.jobName || 'Untitled Job'} <span style={{color:'#999',fontWeight:400}}>#{j.jobNumber}</span></div>
+                <div style={{fontSize:12,color:'#888',marginTop:2}}>{j.roomCount} room{j.roomCount===1?'':'s'} · ${Number(j.jobTotal||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})} · {j.updatedAt ? new Date(j.updatedAt).toLocaleDateString() : ''}</div>
+              </button>
+            ))}
           </div>
         </div>
       )}
