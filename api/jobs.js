@@ -1,4 +1,3 @@
-import 'dotenv/config'
 import { eq, desc, sql } from 'drizzle-orm'
 import { db } from '../db/index.js'
 import { jobs, rooms } from '../db/schema.js'
