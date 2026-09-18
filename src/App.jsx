@@ -2440,14 +2440,17 @@ const ResultsScreen = React.forwardRef(function ResultsScreen({ image, rooms, jo
           rooms: roomPayload
         })
       })
-      const data = await res.json()
+      const rawText = await res.text()
+      let data
+      try { data = JSON.parse(rawText) }
+      catch { throw new Error(`Server error (status ${res.status}): ${rawText.slice(0, 300)}`) }
       if (data.error) throw new Error(data.error)
       setCurrentJobId(data.id)
       setJobNumber(data.jobNumber)
       if (onJobSaved) onJobSaved()
     } catch (err) {
       console.error('Save Job failed:', err)
-      alert('Save Job failed — your work is still on screen, nothing was lost. Check your connection and try again.')
+      alert('Save Job failed — your work is still on screen, nothing was lost.\n\nError details: ' + (err.message || 'Unknown error'))
     } finally {
       setSavingJob(false)
     }
@@ -3240,18 +3243,26 @@ export default function App() {
     setShowJobsList(true)
     try {
       const res = await fetch('/api/jobs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'list' }) })
-      const data = await res.json()
+      const rawText = await res.text()
+      let data
+      try { data = JSON.parse(rawText) }
+      catch { throw new Error(`Server error (status ${res.status}): ${rawText.slice(0, 300)}`) }
+      if (data.error) throw new Error(data.error)
       setJobsList(data.jobs || [])
     } catch (err) {
       console.error('Failed to load jobs list:', err)
       setJobsList([])
+      alert('Could not load saved jobs.\n\nError details: ' + (err.message || 'Unknown error'))
     }
   }
 
   async function loadJob(id) {
     try {
       const res = await fetch('/api/jobs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'get', id }) })
-      const data = await res.json()
+      const rawText = await res.text()
+      let data
+      try { data = JSON.parse(rawText) }
+      catch { throw new Error(`Server error (status ${res.status}): ${rawText.slice(0, 300)}`) }
       if (data.error || !data.job) throw new Error(data.error || 'Job not found')
       const { job, rooms: dbRooms } = data
 
@@ -3284,7 +3295,7 @@ export default function App() {
       setScreen('results')
     } catch (err) {
       console.error('Failed to load job:', err)
-      alert('Could not open that job. Check your connection and try again.')
+      alert('Could not open that job.\n\nError details: ' + (err.message || 'Unknown error'))
     }
   }
 

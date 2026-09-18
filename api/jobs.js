@@ -1,22 +1,23 @@
 import { eq, desc, sql } from 'drizzle-orm'
-import { db } from '../db/index.js'
+import { getDb } from '../db/index.js'
 import { jobs, rooms } from '../db/schema.js'
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
-  const { action } = req.body
 
   try {
-    if (action === 'list') return res.status(200).json(await listJobs())
-    if (action === 'get') return res.status(200).json(await getJob(req.body.id))
-    if (action === 'save') return res.status(200).json(await saveJob(req.body.job, req.body.rooms))
+    const { action } = req.body
+    const db = getDb()
+    if (action === 'list') return res.status(200).json(await listJobs(db))
+    if (action === 'get') return res.status(200).json(await getJob(db, req.body.id))
+    if (action === 'save') return res.status(200).json(await saveJob(db, req.body.job, req.body.rooms))
     return res.status(400).json({ error: 'Unknown action: ' + action })
   } catch (err) {
-    return res.status(500).json({ error: 'Jobs request failed: ' + (err.message || 'Unknown error') })
+    return res.status(500).json({ error: 'Jobs request failed: ' + (err && err.message || 'Unknown error') })
   }
 }
 
-async function listJobs() {
+async function listJobs(db) {
   const rows = await db
     .select({
       id: jobs.id,
@@ -34,7 +35,7 @@ async function listJobs() {
   return { jobs: rows }
 }
 
-async function getJob(id) {
+async function getJob(db, id) {
   if (!id) throw new Error('Missing job id')
   const [job] = await db.select().from(jobs).where(eq(jobs.id, id))
   if (!job) return { error: 'Job not found' }
@@ -42,7 +43,7 @@ async function getJob(id) {
   return { job, rooms: jobRooms }
 }
 
-async function saveJob(job, roomList) {
+async function saveJob(db, job, roomList) {
   if (!job) throw new Error('Missing job data')
   roomList = roomList || []
 
