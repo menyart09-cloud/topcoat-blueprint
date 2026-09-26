@@ -3100,6 +3100,15 @@ class ErrorBoundary extends React.Component {
   }
 }
 
+function sortJobs(list, sortBy) {
+  const sorted = [...list]
+  if (sortBy === 'oldest') sorted.sort((a, b) => new Date(a.updatedAt) - new Date(b.updatedAt))
+  else if (sortBy === 'name') sorted.sort((a, b) => (a.jobName || '').localeCompare(b.jobName || ''))
+  else if (sortBy === 'total') sorted.sort((a, b) => (b.jobTotal || 0) - (a.jobTotal || 0))
+  else sorted.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt)) // 'recent' (default)
+  return sorted
+}
+
 export default function App() {
   const [screen,      setScreen]      = useState('upload')
   const [image,       setImage]       = useState(null)
@@ -3126,6 +3135,7 @@ export default function App() {
   const [jobNumber,    setJobNumber]    = useState(null) // assigned by Postgres on first save; used to disambiguate device-image filenames on repeat saves
   const [showJobsList, setShowJobsList] = useState(false)
   const [jobsList,     setJobsList]     = useState(null) // null = not yet loaded
+  const [jobSort,      setJobSort]      = useState('recent') // 'recent' | 'oldest' | 'name' | 'total'
   const [error,       setError]       = useState('')
   const [converting,  setConverting]  = useState(false)
   const [convertProgress, setConvertProgress] = useState(null) // {current,total} while generating PDF page previews
@@ -3299,6 +3309,23 @@ export default function App() {
     }
   }
 
+  async function deleteJob(id, name) {
+    if (!window.confirm(`Delete "${name || 'this job'}"? This can't be undone.`)) return
+    try {
+      const res = await fetch('/api/jobs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'delete', id }) })
+      const rawText = await res.text()
+      let data
+      try { data = JSON.parse(rawText) }
+      catch { throw new Error(`Server error (status ${res.status}): ${rawText.slice(0, 300)}`) }
+      if (data.error) throw new Error(data.error)
+      setJobsList(prev => (prev || []).filter(j => j.id !== id))
+      if (currentJobId === id) setCurrentJobId(null)
+    } catch (err) {
+      console.error('Failed to delete job:', err)
+      alert('Could not delete that job.\n\nError details: ' + (err.message || 'Unknown error'))
+    }
+  }
+
   function reset() {
     if (screen === 'draw' && drawScreenRef.current?.hasActiveRoomEdit()) {
       if (!window.confirm("You're mid-edit on a room. Start a new job anyway? Any un-saved changes will be discarded.")) return
@@ -3359,14 +3386,30 @@ export default function App() {
               <div style={{fontSize:15,fontWeight:700,color:'#222'}}>Review Jobs</div>
               <button onClick={()=>setShowJobsList(false)} style={{background:'transparent',border:'none',color:'#888',fontSize:20,cursor:'pointer',lineHeight:1}}>×</button>
             </div>
+            {jobsList && jobsList.length > 0 && (
+              <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:12}}>
+                <div style={{fontSize:12,color:'#888'}}>Sort by</div>
+                <select value={jobSort} onChange={e=>setJobSort(e.target.value)}
+                  style={{flex:1,padding:'6px 8px',fontSize:13,border:'1.5px solid #ddd',borderRadius:6,background:'#fff'}}>
+                  <option value="recent">Most recent</option>
+                  <option value="oldest">Oldest</option>
+                  <option value="name">Job name (A-Z)</option>
+                  <option value="total">Job total (high-low)</option>
+                </select>
+              </div>
+            )}
             {jobsList === null && <div style={{textAlign:'center',color:'#999',fontSize:13,padding:'20px 0'}}>Loading…</div>}
             {jobsList && jobsList.length === 0 && <div style={{textAlign:'center',color:'#999',fontSize:13,padding:'20px 0'}}>No saved jobs yet.</div>}
-            {jobsList && jobsList.map(j => (
-              <button key={j.id} onClick={()=>loadJob(j.id)}
-                style={{display:'block',width:'100%',textAlign:'left',background:'#f8f8f7',border:'1px solid #eee',borderRadius:10,padding:'12px 14px',marginBottom:8,cursor:'pointer'}}>
-                <div style={{fontWeight:700,fontSize:14,color:'#222'}}>{j.jobName || 'Untitled Job'} <span style={{color:'#999',fontWeight:400}}>#{j.jobNumber}</span></div>
-                <div style={{fontSize:12,color:'#888',marginTop:2}}>{j.roomCount} room{j.roomCount===1?'':'s'} · ${Number(j.jobTotal||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})} · {j.updatedAt ? new Date(j.updatedAt).toLocaleDateString() : ''}</div>
-              </button>
+            {jobsList && sortJobs(jobsList, jobSort).map(j => (
+              <div key={j.id} style={{display:'flex',alignItems:'stretch',gap:8,marginBottom:8}}>
+                <button onClick={()=>loadJob(j.id)}
+                  style={{flex:1,minWidth:0,display:'block',textAlign:'left',background:'#f8f8f7',border:'1px solid #eee',borderRadius:10,padding:'12px 14px',cursor:'pointer'}}>
+                  <div style={{fontWeight:700,fontSize:14,color:'#222'}}>{j.jobName || 'Untitled Job'} <span style={{color:'#999',fontWeight:400}}>#{j.jobNumber}</span></div>
+                  <div style={{fontSize:12,color:'#888',marginTop:2}}>{j.roomCount} room{j.roomCount===1?'':'s'} · ${Number(j.jobTotal||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})} · {j.updatedAt ? new Date(j.updatedAt).toLocaleDateString() : ''}</div>
+                </button>
+                <button onClick={()=>deleteJob(j.id, j.jobName)} title="Delete job"
+                  style={{width:40,flexShrink:0,background:'#fdecea',border:'1px solid #f5c6c6',borderRadius:10,color:'#c62828',fontSize:15,cursor:'pointer'}}>🗑️</button>
+              </div>
             ))}
           </div>
         </div>

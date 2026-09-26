@@ -11,6 +11,7 @@ export default async function handler(req, res) {
     if (action === 'list') return res.status(200).json(await listJobs(db))
     if (action === 'get') return res.status(200).json(await getJob(db, req.body.id))
     if (action === 'save') return res.status(200).json(await saveJob(db, req.body.job, req.body.rooms))
+    if (action === 'delete') return res.status(200).json(await deleteJob(db, req.body.id))
     return res.status(400).json({ error: 'Unknown action: ' + action })
   } catch (err) {
     return res.status(500).json({ error: 'Jobs request failed: ' + (err && err.message || 'Unknown error') })
@@ -95,4 +96,12 @@ async function saveJob(db, job, roomList) {
   await db.batch(batchQueries)
 
   return { id: jobId, jobNumber }
+}
+
+async function deleteJob(db, id) {
+  if (!id) throw new Error('Missing job id')
+  // rooms.jobId has onDelete: 'cascade', so this removes the job's rooms too.
+  const [deleted] = await db.delete(jobs).where(eq(jobs.id, id)).returning({ id: jobs.id })
+  if (!deleted) return { error: 'Job not found' }
+  return { success: true }
 }
